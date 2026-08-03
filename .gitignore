@@ -1,0 +1,11 @@
+data/
+__pycache__/
+*.pyc
+.env
+
+# 開発メモ（本番URL・内部設計・運用アカウント名を含むため公開しない）
+CLAUDE.md
+
+# 販売者の環境専用の運用スクリプト（購入者環境では動かない）
+deploy.sh
+sync_extension.sh

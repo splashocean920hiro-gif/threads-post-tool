@@ -1,0 +1,1253 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Threads運用ツール</title>
+<style>
+:root {
+  --accent: #1a1a1a;
+  --accent-th: #8b5cf6;
+  --accent-data: #2a78d6;
+  --beige: #f4f1ea;
+  --beige-dark: #e0dbd0;
+  --text: #2c2c2c;
+  --muted: #898781;
+  --card: #fff;
+  --r: 16px;
+  --r-sm: 10px;
+  --good: #0ca30c;
+  --warning: #b8790a;
+  --critical: #d03b3b;
+  --blue: #2a78d6;
+  --shadow: 0 8px 24px rgba(30,20,10,0.09);
+  --shadow-sm: 0 2px 10px rgba(30,20,10,0.06);
+  --num-font: -apple-system, 'SF Pro Text', 'Hiragino Maru Gothic ProN', 'Noto Sans JP', sans-serif;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Hiragino Maru Gothic ProN', 'BIZ UDPGothic', 'Noto Sans JP', sans-serif;
+  background: var(--beige);
+  color: var(--text);
+  padding: 12px;
+  padding-bottom: 60px;
+}
+.wrap { max-width: 1180px; margin: 0 auto; }
+
+header { text-align: center; padding: 20px 0 16px; position: relative; }
+header h1 { font-size: 1.4rem; font-weight: bold; }
+header p { font-size: 0.8rem; color: var(--muted); margin-top: 4px; }
+.logout-link {
+  position: absolute; top: 20px; right: 0; font-size: 0.76rem; color: var(--muted);
+  background: none; border: none; cursor: pointer; text-decoration: underline;
+}
+
+/* レベル1タブ */
+nav.tabs-l1 { display: flex; gap: 8px; margin-bottom: 10px; }
+nav.tabs-l1 button {
+  flex: 1; padding: 12px 10px; border: none; border-radius: 10px;
+  background: var(--card); color: var(--muted); font-size: 0.9rem; font-weight: bold;
+  cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.05); border: 2px solid transparent;
+}
+nav.tabs-l1 button.active.group-post { background: var(--accent-th); color: #fff; }
+nav.tabs-l1 button.active.group-data { background: var(--accent-data); color: #fff; }
+
+/* レベル2タブ */
+nav.tabs-l2 {
+  display: flex; gap: 6px; margin-bottom: 14px;
+  overflow-x: auto; -webkit-overflow-scrolling: touch;
+}
+nav.tabs-l2 button {
+  flex: 1 0 auto; padding: 9px 10px; border: none; border-radius: 8px;
+  background: var(--beige-dark); color: var(--text); font-size: 0.78rem;
+  font-weight: bold; cursor: pointer; white-space: nowrap;
+}
+nav.tabs-l2 button.active.group-post { background: var(--accent-th); color: #fff; }
+nav.tabs-l2 button.active.group-data { background: var(--accent-data); color: #fff; }
+
+.panel {
+  background: var(--card); border-radius: var(--r);
+  padding: 20px 22px; margin-bottom: 16px;
+  box-shadow: var(--shadow);
+  border: 1px solid rgba(30,20,10,0.04);
+}
+.panel-title {
+  font-size: 0.72rem; font-weight: bold; color: var(--muted);
+  letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 12px;
+}
+.panel h3 { font-size: 0.95rem; margin-bottom: 8px; }
+.panel p.note { font-size: 0.78rem; color: var(--muted); line-height: 1.6; margin-bottom: 10px; }
+
+.fg { margin-bottom: 10px; }
+.fg:last-child { margin-bottom: 0; }
+.fg label { display: block; font-size: 0.8rem; font-weight: bold; margin-bottom: 4px; }
+.fg .sub-hint { font-size: 0.7rem; color: var(--muted); font-weight: normal; margin-left: 4px; }
+.fg input, .fg textarea {
+  width: 100%; padding: 10px 12px; border: 1.5px solid var(--beige-dark);
+  border-radius: var(--r-sm); font-size: 0.86rem; font-family: inherit;
+  background: var(--beige); color: var(--text);
+  transition: border-color .15s, box-shadow .15s, background .15s;
+}
+.fg input:focus, .fg textarea:focus {
+  outline: none; border-color: var(--accent-th); background: #fff;
+  box-shadow: 0 0 0 3px rgba(139,92,246,0.14);
+}
+.fg textarea { resize: vertical; min-height: 60px; line-height: 1.6; }
+.fg input[type=number] { font-family: var(--num-font); font-variant-numeric: tabular-nums; font-weight: 600; }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+
+/* 日付・時間ピッカー：ネイティブUIを全体のトーンに馴染ませる */
+input[type=date], input[type=time] {
+  font-family: var(--num-font); font-variant-numeric: tabular-nums; font-weight: 600;
+  color: var(--text); background: #fff; border: 1.5px solid var(--beige-dark);
+  border-radius: var(--r-sm); padding: 7px 10px; font-size: 0.82rem;
+  transition: border-color .15s, box-shadow .15s;
+}
+input[type=date]:hover, input[type=time]:hover { border-color: var(--accent-th); }
+input[type=date]:focus, input[type=time]:focus {
+  outline: none; border-color: var(--accent-th);
+  box-shadow: 0 0 0 3px rgba(139,92,246,0.14);
+}
+input[type=date]::-webkit-calendar-picker-indicator,
+input[type=time]::-webkit-calendar-picker-indicator {
+  filter: invert(46%) sepia(59%) saturate(3000%) hue-rotate(232deg) brightness(93%);
+  opacity: 0.7; cursor: pointer; border-radius: 4px;
+}
+input[type=date]::-webkit-calendar-picker-indicator:hover,
+input[type=time]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
+
+.btn {
+  display: inline-block; padding: 10px 18px; border: none; border-radius: 8px;
+  font-size: 0.85rem; font-weight: bold; cursor: pointer;
+  background: var(--accent-th); color: #fff;
+}
+.btn.data { background: var(--accent-data); }
+.btn.secondary { background: var(--beige-dark); color: var(--text); }
+.btn.small { padding: 6px 12px; font-size: 0.76rem; }
+.btn.good { background: var(--good); }
+.btn.critical { background: var(--critical); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.gen-buttons { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-start; margin-bottom: 6px; }
+.gen-buttons .btn-desc { font-size: 0.72rem; color: var(--muted); display: block; margin-top: 4px; max-width: 260px; }
+.gen-col { display: flex; flex-direction: column; }
+/* 左の列だけ日付欄がある分ボタンが下がるので、右の列にも同じ高さの領域を確保して
+   ボタンの上端を揃える（片方だけ空でも高さは同じにする） */
+.gen-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; min-height: 38px; margin-bottom: 6px; }
+.gen-head label { font-size: 0.8rem; color: var(--muted); }
+.gen-head input[type=date] { padding: 8px 10px; border: 1.5px solid var(--beige-dark); border-radius: var(--r-sm); }
+
+.api-card { background: var(--card); border: 1px solid rgba(30,20,10,0.05); box-shadow: var(--shadow-sm); border-radius: 14px; padding: 16px; margin-bottom: 12px; }
+.api-card h3 { display: flex; align-items: center; gap: 8px; }
+.api-card .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); display: inline-block; }
+.api-card .status-dot.set { background: var(--good); }
+.api-card .status-line { font-size: 0.72rem; color: var(--muted); margin-bottom: 10px; }
+
+/* 参照投稿（ツリー） */
+.ref-item { background: var(--card); border: 1px solid rgba(30,20,10,0.05); box-shadow: var(--shadow-sm); border-radius: 14px; padding: 14px 16px; margin-bottom: 10px; }
+.ref-thread { position: relative; padding-left: 4px; }
+.ref-node { position: relative; padding: 6px 0 6px 18px; font-size: 0.84rem; line-height: 1.6; }
+.ref-node .ref-tag { font-size: 0.68rem; font-weight: bold; color: var(--accent-th); display: block; margin-bottom: 2px; }
+.ref-node.reply { padding-left: 34px; border-left: 2px solid var(--beige-dark); margin-left: 8px; }
+.ref-item .meta { display: flex; gap: 10px; flex-wrap: wrap; font-size: 0.72rem; color: var(--muted); margin-top: 8px; }
+.ref-item .actions { margin-top: 8px; display: flex; gap: 6px; }
+
+.stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.stat-tile {
+  background: var(--card); border-radius: 14px; padding: 14px;
+  box-shadow: var(--shadow-sm); border: 1px solid rgba(30,20,10,0.05); text-align: center;
+}
+.stat-tile .val { font-family: var(--num-font); font-variant-numeric: tabular-nums; font-size: 1.7rem; font-weight: 800; letter-spacing: -0.02em; }
+.stat-tile .lbl { font-size: 0.7rem; color: var(--muted); margin-top: 3px; }
+
+.badge {
+  display: inline-block; padding: 3px 11px; border-radius: 999px;
+  font-size: 0.7rem; font-weight: bold; color: #fff;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+}
+.badge-draft { background: var(--muted); }
+.badge-scheduled { background: var(--accent-th); }
+.badge-posted { background: var(--good); }
+.badge-posting { background: #d97706; }
+.badge-failed { background: var(--critical); }
+
+.set-card {
+  background: var(--card); border: 1px solid rgba(30,20,10,0.05);
+  border-left: 5px solid var(--muted);
+  border-radius: 14px; padding: 18px 20px;
+  margin-bottom: 16px; box-shadow: var(--shadow-sm);
+}
+.set-card:has(.badge-scheduled) { border-left-color: var(--accent-th); }
+.set-card:has(.badge-posted) { border-left-color: var(--good); }
+.set-card:has(.badge-posting) { border-left-color: #d97706; }
+.set-card:has(.badge-failed) { border-left-color: var(--critical); }
+.set-card .set-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 8px; }
+.set-card .set-head .when { font-size: 0.78rem; font-weight: bold; color: var(--muted); }
+.schedule-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; background: var(--beige); border-radius: var(--r-sm); padding: 8px 10px; }
+.schedule-row label { font-size: 0.7rem; color: var(--muted); font-weight: bold; }
+.schedule-row input[type=date] { width: auto; }
+.schedule-row input[type=time] { width: auto; }
+
+/* 投稿カード共通（今週の投稿カレンダー・企画ページのドラフト両方で使う） */
+.post-line { margin-bottom: 12px; }
+.post-line:last-of-type { margin-bottom: 0; }
+.post-line .tag { display: block; font-size: 0.72rem; font-weight: bold; color: var(--accent-th); margin-bottom: 5px; }
+.post-line textarea {
+  width: 100%; font-size: 0.92rem; font-family: inherit; line-height: 1.7;
+  padding: 12px 14px; border: 1.5px solid var(--beige-dark); border-radius: var(--r-sm);
+  background: var(--beige); color: var(--text); resize: vertical;
+  transition: border-color .15s, box-shadow .15s, background .15s;
+}
+.post-line textarea:focus {
+  outline: none; border-color: var(--accent-th); background: #fff;
+  box-shadow: 0 0 0 3px rgba(139,92,246,0.14);
+}
+.set-card .actions, .draft-card .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.set-card .impressions { font-size: 0.78rem; color: var(--muted); margin-top: 8px; font-variant-numeric: tabular-nums; }
+
+.date-group-title { font-size: 0.9rem; font-weight: bold; margin: 20px 0 10px; color: var(--accent); padding-bottom: 6px; border-bottom: 2px solid var(--beige-dark); }
+.date-group-title:first-child { margin-top: 0; }
+.date-group-title .count { font-weight: normal; color: var(--muted); font-size: 0.76rem; margin-left: 8px; }
+
+.draft-card {
+  border: 1.5px dashed var(--accent-th); border-left: 5px solid var(--accent-th);
+  border-radius: 14px; padding: 18px 20px; margin-bottom: 16px;
+  background: #faf8ff; box-shadow: var(--shadow-sm);
+}
+
+.bar-row { display: grid; grid-template-columns: 120px 1fr 70px; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 0.76rem; }
+.bar-track { position: relative; height: 18px; background: var(--beige-dark); border-radius: 4px; overflow: visible; }
+.bar-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; }
+.bar-fill.under { background: var(--blue); }
+.bar-fill.over { background: var(--good); }
+.bar-threshold {
+  position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--critical);
+}
+.legend-note { font-size: 0.72rem; color: var(--muted); margin-top: 8px; }
+
+.plan-summary { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+.plan-summary .item { background: var(--beige); border-radius: var(--r-sm); padding: 10px 18px; text-align: center; }
+.plan-summary .item .n { font-family: var(--num-font); font-variant-numeric: tabular-nums; font-size: 1.3rem; font-weight: 800; letter-spacing: -0.02em; }
+.plan-summary .item .l { font-size: 0.7rem; color: var(--muted); margin-top: 2px; }
+
+.empty { font-size: 0.8rem; color: var(--muted); text-align: center; padding: 20px 0; }
+
+@media (max-width: 640px) {
+  .row2, .row3 { grid-template-columns: 1fr; }
+  .logout-link { position: static; display: block; margin-top: 8px; }
+}
+
+/* ---- Threadsアカウント切り替えサイドバー ---- */
+body.has-sidebar { display: flex; align-items: flex-start; }
+#acct-side {
+  width: 232px; flex: none; min-height: 100vh; background: #16181c; color: #e7e9ea;
+  padding: 18px 14px; position: sticky; top: 0; align-self: stretch;
+}
+#acct-side .brand { font-weight: 700; font-size: 15px; margin-bottom: 2px; }
+#acct-side .brand small { display: block; font-weight: 400; font-size: 10px; letter-spacing: .12em;
+  color: #8b949e; margin-top: 2px; }
+#acct-side .sec { display: flex; align-items: center; justify-content: space-between;
+  margin: 22px 0 8px; font-size: 11px; color: #8b949e; letter-spacing: .08em; }
+#acct-side .addbtn { background: #2a2e35; border: none; color: #e7e9ea; width: 24px; height: 24px;
+  border-radius: 6px; cursor: pointer; font-size: 15px; line-height: 1; }
+#acct-side .addbtn:hover { background: #3a3f47; }
+.acct-item { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+  background: transparent; border: 1px solid transparent; color: #e7e9ea; padding: 9px 10px;
+  border-radius: 8px; cursor: pointer; font-size: 13px; margin-bottom: 4px; }
+.acct-item:hover { background: #21252b; }
+.acct-item.active { background: #21252b; border-color: #3a3f47; }
+.acct-item .dot { width: 7px; height: 7px; border-radius: 50%; background: #f0883e; flex: none; }
+.acct-item.ready .dot { background: #3fb950; }
+.acct-item .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acct-empty { border: 1px dashed #3a3f47; border-radius: 8px; padding: 14px 12px; font-size: 12px;
+  color: #8b949e; text-align: center; cursor: pointer; }
+.acct-empty:hover { border-color: #58616b; color: #c9d1d9; }
+#acct-side .side-foot { margin-top: 24px; font-size: 11px; color: #6b7280; line-height: 1.6; }
+#acct-side .side-foot a { color: #8b949e; }
+body.has-sidebar > .wrap { flex: 1; min-width: 0; }
+@media (max-width: 780px) {
+  body.has-sidebar { display: block; }
+  #acct-side { width: auto; min-height: 0; position: static; }
+}
+</style>
+</head>
+<body class="has-sidebar">
+<aside id="acct-side">
+  <div class="brand">Threads運用ツール<small>MULTI ACCOUNT</small></div>
+  <div class="sec"><span>アカウント</span><button class="addbtn" id="acct-add" title="アカウントを追加">＋</button></div>
+  <div id="acct-list"></div>
+  <div class="side-foot">
+    集めた参考投稿は、アカウントごとの担当キーワードで自動的に振り分けられます。<br>
+    <a href="/setup">初期設定・拡張機能</a>
+  </div>
+</aside>
+<div class="wrap">
+  <header>
+    <a href="/setup" class="btn small" style="margin-right:8px">初期設定・拡張機能</a><button class="logout-link" id="logout-btn">ログアウト</button>
+    <h1>Threads運用ツール</h1>
+    <p>データはサーバーに保存され、どの端末からでも同じ状態で操作できます</p>
+  </header>
+
+  <nav class="tabs-l1">
+    <button data-l1="post" class="group-post active">📅 投稿関連</button>
+    <button data-l1="data" class="group-data">🗂 データ関連</button>
+  </nav>
+
+  <nav class="tabs-l2" data-group="post">
+    <button data-l2="calendar" class="group-post active">今週の投稿カレンダー</button>
+    <button data-l2="plan" class="group-post">企画（来週の投稿作成）</button>
+  </nav>
+  <nav class="tabs-l2" data-group="data" style="display:none;">
+    <button data-l2="apikeys" class="group-data active">API設定</button>
+    <button data-l2="reference" class="group-data">参照投稿</button>
+    <button data-l2="template" class="group-data">投稿テンプレート</button>
+    <button data-l2="analytics" class="group-data">分析</button>
+  </nav>
+
+  <!-- ============ 投稿関連: 今週の投稿カレンダー ============ -->
+  <section id="tab-calendar" class="tab-content">
+    <div class="panel">
+      <div class="panel-title">投稿カレンダー</div>
+      <p class="note">日付・時間はそれぞれ編集できます。本日以前の日付なら「投稿を実行」、未来の日付なら「投稿を予約」でそのまま操作できます。Threads APIが未設定の間は投稿実行がデモ動作（ランダムで成功/失敗）になります。</p>
+      <div id="review-list"></div>
+    </div>
+  </section>
+
+  <!-- ============ 投稿関連: 企画 ============ -->
+  <section id="tab-plan" class="tab-content" style="display:none;">
+    <div class="panel">
+      <div class="panel-title">投稿を生成</div>
+      <p class="note">「データ関連 &gt; 参照投稿」に登録したツリー投稿と、「データ関連 &gt; 投稿テンプレート」のルールを踏まえて、Geminiが投稿を生成します。</p>
+      <div class="plan-summary">
+        <div class="item"><div class="n" id="plan-ref-count">0</div><div class="l">参照投稿</div></div>
+        <div class="item"><div class="n" id="plan-template-status">-</div><div class="l">テンプレート</div></div>
+        <div class="item"><div class="n" id="plan-gemini-status">-</div><div class="l">Gemini APIキー</div></div>
+      </div>
+      <div class="gen-buttons">
+        <div class="gen-col">
+          <div class="gen-head">
+            <label for="gen-date">投稿する日</label>
+            <input type="date" id="gen-date">
+          </div>
+          <button class="btn" id="gen-bulk-btn">この日の5件を生成する</button>
+          <span class="btn-desc">指定した日の 8:00 / 12:00 / 17:00 / 20:00 / 21:00 の5投稿を生成します。内容を確認してから「投稿を予約」で確定してください</span>
+        </div>
+        <div class="gen-col">
+          <div class="gen-head" aria-hidden="true"></div>
+          <button class="btn secondary" id="gen-single-btn">1件だけ生成する</button>
+          <span class="btn-desc">1投稿だけ生成します。内容を確認してから「予約する」ボタンでスケジュールに追加してください</span>
+        </div>
+      </div>
+      <span id="gen-status" style="font-size:0.78rem;color:var(--muted);display:block;margin-top:8px;"></span>
+    </div>
+
+    <div class="panel" id="drafts-panel" style="display:none;">
+      <div class="panel-title">生成済み・未予約の投稿</div>
+      <p class="note">内容を編集し、日付・時間を指定してから「予約する」を押すとスケジュールに反映されます。</p>
+      <div id="drafts-list"></div>
+    </div>
+  </section>
+
+  <!-- ============ データ関連: API設定 ============ -->
+  <section id="tab-apikeys" class="tab-content" style="display:none;">
+    <div class="panel">
+      <div class="panel-title">API設定</div>
+      <p class="note">ここで入力した情報はサーバーに保存され、どの端末からでも共通で使われます。現状、実際にAPI通信するのはGeminiと（設定済みの場合の）Threadsです。</p>
+
+            <div class="api-card">
+        <h3><span class="status-dot" id="dot-recovery"></span>アカウント復旧（パスワードを忘れたとき用）</h3>
+        <p class="status-line" id="recovery-status">読み込み中…</p>
+        <div class="fg" style="flex-basis:100%">
+          <label>秘密の質問 <span class="sub-hint">（自分で自由に決めてください）</span></label>
+          <input id="rec-question" placeholder="例: 初めて働いたバイト先の店長の口癖は？" maxlength="200">
+          <p class="sub-hint" style="color:var(--bad, #d64545)">⚠️ この質問文は、あなたのユーザーIDを知っている人なら誰でも見られます。個人情報や、答えのヒントになることは書かないでください。</p>
+        </div>
+        <div class="fg" style="flex-basis:100%">
+          <label>答え <span class="sub-hint">（8文字以上。単語ではなく短い文にすると推測されにくくなります）</span></label>
+          <input id="rec-answer" type="password" placeholder="変更しない場合は空欄のまま" maxlength="200">
+          <p class="sub-hint">大文字小文字・全角半角の違いと、<strong>空白は無視されます</strong>。<strong>ひらがなとカタカナは区別されます。</strong></p>
+        </div>
+        <div class="fg" style="flex-basis:100%">
+          <label>メールアドレス <span class="sub-hint">（任意。将来の通知用。空欄のまま保存すると現在の登録内容が維持されます）</span></label>
+          <input id="rec-email" type="email" placeholder="example@example.com" maxlength="254">
+        </div>
+        <div class="fg" style="flex-basis:100%">
+          <label>現在のパスワード <span class="sub-hint">（変更を保存するために必要です）</span></label>
+          <input id="rec-current-pw" type="password" placeholder="現在のパスワード">
+        </div>
+        <button class="btn small" id="rec-save">復旧情報を保存する</button>
+        <span id="rec-msg" style="font-size:0.78rem;margin-left:10px;"></span>
+      </div>
+
+<div class="api-card">
+        <h3><span class="status-dot" id="dot-gemini"></span> Gemini API（投稿文生成・実動作）</h3>
+        <div class="status-line">https://generativelanguage.googleapis.com</div>
+        <div class="fg"><label>APIキー</label><input id="key-gemini" type="password" placeholder="AIza..."></div>
+      </div>
+
+      <div class="api-card">
+        <h3><span class="status-dot" id="dot-threads"></span> Threads API（Meta）</h3>
+        <div class="status-line">graph.threads.net ／ 未設定の間は投稿実行がデモ動作になります</div>
+        <div class="row2">
+          <div class="fg"><label>アカウントの表示名</label><input id="acct-label" placeholder="例: 副業アカ"></div>
+          <div class="fg" style="flex-basis:100%"><label>担当キーワード <span class="sub-hint">（1行に1つ。拡張機能が集めた投稿を、このアカウントの参考投稿として振り分けます）</span></label><textarea id="acct-keywords" rows="3" placeholder="副業&#10;AI 副業&#10;在宅ワーク" style="width:100%"></textarea></div>
+          <div class="fg"><label>Access Token</label><input id="key-threads-token" type="password" placeholder="アクセストークンを貼り付け"></div>
+          <div class="fg"><label>User ID <span class="sub-hint">（トークンから自動取得）</span></label><input id="key-threads-uid" placeholder="トークン入力で自動入力されます" readonly style="background:var(--beige-dark);cursor:not-allowed;"></div>
+        </div>
+        <div id="threads-resolve-status" style="font-size:0.74rem;color:var(--muted);margin-top:4px;"></div>
+        <div style="margin-top:10px;">
+          <a href="https://developers.facebook.com/apps/" target="_blank" rel="noopener" style="color:var(--accent-th);font-weight:bold;font-size:0.82rem;">→ Threads APIキーの取得ページ（Meta for Developers）を開く</a>
+          <div style="color:var(--muted);font-size:0.72rem;line-height:1.6;margin-top:5px;">
+            ① アプリを作成 → ②「Access the Threads API」を選択 → ③ 自分をThreadsテスターに追加してThreads側で承認 → ④「User Token Generator」で <code>threads_basic</code> / <code>threads_content_publish</code> 権限のトークンを生成 → ⑤ 表示されたUser IDとAccess Tokenを上の欄に入力。<br>短期トークンは <code>graph.threads.net/access_token</code> で60日の長期トークンに交換できます。
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ データ関連: 参照投稿 ============ -->
+  <section id="tab-reference" class="tab-content" style="display:none;">
+    <div class="panel">
+      <div class="panel-title">参照投稿を登録</div>
+      <p class="note">Threadsで実際に伸びている投稿を、投稿者は問わず登録してください。<b>必須は「本文」と反応数（いいね・リプライ・インプレッション）だけ</b>で、これが「どんな投稿が伸びるか」をAIに学ばせる主な材料です。リプライ（ツリー）は分かる場合のみ任意で追加してください。buzz-threads-collector拡張機能が収集した投稿は本文＋数値の形で自動反映されます。</p>
+      <div class="fg"><label>本文</label><textarea id="ref-main" placeholder="伸びていた投稿の本文"></textarea></div>
+      <div class="fg"><label>リプライ1 <span class="sub-hint">（任意・分かる場合のみ）</span></label><textarea id="ref-reply1" rows="2" placeholder="投稿者自身が続けたリプライ（あれば）"></textarea></div>
+      <div class="fg"><label>リプライ2 <span class="sub-hint">（任意・分かる場合のみ）</span></label><textarea id="ref-reply2" rows="2" placeholder="投稿者自身が続けたリプライ（あれば）"></textarea></div>
+      <div class="row2">
+        <div class="fg"><label>投稿URL</label><input id="ref-url" placeholder="https://www.threads.com/@.../post/..."></div>
+        <div class="fg"><label>投稿日</label><input id="ref-date" type="date"></div>
+      </div>
+      <div class="row2">
+        <div class="fg"><label>いいね数</label><input id="ref-likes" type="number" min="0" placeholder="0"></div>
+        <div class="fg"><label>リプライ件数（元投稿の反応数）</label><input id="ref-replies" type="number" min="0" placeholder="0"></div>
+      </div>
+      <div class="fg"><label>インプレッション数 <span class="sub-hint">（任意）</span></label><input id="ref-impressions" type="number" min="0" placeholder="0"></div>
+      <button class="btn data" id="ref-add-btn" style="margin-top:6px;">参照投稿に追加</button>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">登録済み（<span id="ref-count">0</span>件）</div>
+      <div id="ref-list"></div>
+    </div>
+  </section>
+
+  <!-- ============ データ関連: 投稿テンプレート ============ -->
+  <section id="tab-template" class="tab-content" style="display:none;">
+    <div class="panel">
+      <div class="panel-title">投稿テンプレート（生成ルール）</div>
+      <p class="note">投稿文を生成する際にGeminiへ渡すルール・汎用プロンプトです。文字数・口調・構成などの方針を自由に編集してください。生成ボタンを押すたびに、この内容がそのまま使われます。</p>
+      <div class="fg"><textarea id="template-rules" rows="12"></textarea></div>
+      <button class="btn secondary" id="template-reset-btn" style="margin-top:6px;">デフォルトに戻す</button>
+      <span id="template-save-status" style="font-size:0.76rem;color:var(--muted);margin-left:10px;"></span>
+    </div>
+  </section>
+
+  <!-- ============ データ関連: 分析 ============ -->
+  <section id="tab-analytics" class="tab-content" style="display:none;">
+    <div class="panel">
+      <div class="panel-title">サマリー</div>
+      <div class="stat-row" id="stat-row"></div>
+      <p class="note">判定基準：インプレッション <b>1万</b> 超え＝伸びた投稿。数値は Threads Insights API から自動で取得し、投稿後7日間は定期的に更新されます。<br>
+        ※ Threads APIを設定していない場合の「デモ動作」で投稿したものには、動作確認用のランダムな数値が入ります（その投稿には「デモ動作です」と表示されます）。</p>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">投稿別インプレッション</div>
+      <div id="bar-list"></div>
+      <div class="legend-note">
+        <span style="color:var(--blue);">■</span> 1万未満
+        <span style="color:var(--good);">■</span> 1万超え（伸びた）
+        <span style="color:var(--critical);">|</span> 1万ライン
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+// 新しいモデルから順に試す（前のモデルが混雑503/未提供404/レート超過429なら次へ自動フォールバック）。
+// 現行モデルはListModels APIで確認済み（2026-07-29時点。3.6-flashが最新GA）。古くなったら見直すこと。
+const GEMINI_MODELS = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-flash-latest'];
+// 1日の投稿時間。1日5件を別テーマで出す運用に合わせている
+const DAY_SLOTS = ['08:00', '12:00', '17:00', '20:00', '21:00'];
+const SLOT_HINTS = ['朝の通勤・起床直後', '昼休み', '夕方の移動中', '夜のくつろぎ時間', '就寝前'];
+const DAYS = ['月','火','水','木','金','土','日'];
+const WEEKDAY_JP = ['日','月','火','水','木','金','土'];
+
+const DEFAULT_TEMPLATE_RULES = `- 各投稿は「本文」+「リプライ1」+「リプライ2」で構成されるツリー投稿にする
+- 本文は120〜200字程度、リプライは80〜150字程度
+- 経営者目線で、フォロワーに刺さる具体的な内容にする（抽象的な精神論だけにしない）
+- 参照投稿の切り口・口調・テーマ傾向を参考にするが、丸写しはしない
+- 絵文字は使っても1〜2個までにする`;
+
+// サーバーが唯一の情報源。ここはページ内キャッシュ。
+let state = {
+  apiKeys: { gemini: '', threadsUserId: '', threadsToken: '' },
+  template: { rules: DEFAULT_TEMPLATE_RULES },
+  library: [],
+  posts: [],
+  drafts: [],
+};
+
+// 選択中のThreadsアカウント。全APIに ?account= を自動で付ける。
+// 付け忘れると別アカウントのデータを表示・更新してしまうので、呼び出し側では意識させない。
+const ACCT_KEY = 'threads_tool_active_account';
+let activeAccount = localStorage.getItem(ACCT_KEY) || '';
+let accounts = [];
+
+function withAccount(path) {
+  if (!activeAccount || path.startsWith('/api/threads-accounts')) return path;
+  return path + (path.includes('?') ? '&' : '?') + 'account=' + encodeURIComponent(activeAccount);
+}
+
+async function api(path, opts = {}) {
+  path = withAccount(path);
+  const res = await fetch(path, {
+    ...opts,
+    headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
+  });
+  if (res.status === 401) {
+    location.href = '/login';
+    throw new Error('unauthorized');
+  }
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`API error ${res.status}: ${text.slice(0, 200)}`);
+  }
+  if (res.status === 204) return null;
+  return res.json();
+}
+
+async function loadAccounts() {
+  accounts = await api('/api/threads-accounts');
+  if (accounts.length && !accounts.some(a => a.id === activeAccount)) {
+    activeAccount = accounts[0].id;
+    localStorage.setItem(ACCT_KEY, activeAccount);
+  }
+  if (!accounts.length) { activeAccount = ''; localStorage.removeItem(ACCT_KEY); }
+  renderAccounts();
+}
+
+function renderAccounts() {
+  const el = document.getElementById('acct-list');
+  if (!accounts.length) {
+    el.innerHTML = '<div class="acct-empty" id="acct-first">＋ 最初のアカウントを追加</div>';
+    document.getElementById('acct-first').addEventListener('click', addAccount);
+    return;
+  }
+  el.innerHTML = accounts.map(a => `
+    <button class="acct-item ${a.id === activeAccount ? 'active' : ''} ${a.has_token && a.threads_user_id ? 'ready' : ''}"
+            data-acct="${escapeHtml(a.id)}" title="${escapeHtml(a.label)}">
+      <span class="dot"></span><span class="nm">${escapeHtml(a.label)}</span>
+    </button>`).join('');
+  el.querySelectorAll('[data-acct]').forEach(b => {
+    b.addEventListener('click', () => switchAccount(b.dataset.acct));
+  });
+}
+
+async function switchAccount(id) {
+  if (id === activeAccount) return;
+  activeAccount = id;
+  localStorage.setItem(ACCT_KEY, id);
+  renderAccounts();
+  await reloadAll();
+}
+
+async function addAccount() {
+  const label = prompt('アカウントの表示名を入力してください（例: 副業アカ）');
+  if (!label || !label.trim()) return;
+  try {
+    const a = await api('/api/threads-accounts', { method: 'POST', body: JSON.stringify({ label: label.trim() }) });
+    await loadAccounts();
+    await switchAccount(a.id);
+    if (a.id === activeAccount) await reloadAll();
+    alert('追加しました。「データ関連 → API設定」でThreadsのUser ID・アクセストークン・担当キーワードを登録してください。');
+  } catch (e) { alert(`追加に失敗しました：${e.message || e}`); }
+}
+
+document.getElementById('acct-add').addEventListener('click', addAccount);
+
+document.getElementById('logout-btn').addEventListener('click', async () => {
+  await api('/api/logout', { method: 'POST' });
+  location.href = '/login';
+});
+
+function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+function safeHref(u) {
+  // 既に保存済みの不正なURLが残っている可能性があるので、描画側でも https(s) 以外は無効化する
+  try { const p = new URL(String(u || '')); return (p.protocol === 'https:' || p.protocol === 'http:') ? p.href : '#'; }
+  catch (e) { return '#'; }
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function pad2(n) { return String(n).padStart(2, '0'); }
+function formatDate(d) { return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`; }
+function addDays(d, n) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
+function nextMondayDate() {
+  const today = new Date();
+  today.setHours(0,0,0,0);
+  const day = today.getDay(); // 0=Sun..6=Sat
+  const diff = ((8 - day) % 7) || 7;
+  return addDays(today, diff);
+}
+function tomorrowDate() { return formatDate(addDays(new Date(), 1)); }
+function weekdayLabel(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  return WEEKDAY_JP[d.getDay()];
+}
+function shortDate(dateStr) {
+  const [y,m,dd] = dateStr.split('-');
+  return `${Number(m)}/${Number(dd)}`;
+}
+
+// ---- タブ切り替え（2階層） ----
+document.querySelectorAll('nav.tabs-l1 button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const group = btn.dataset.l1;
+    document.querySelectorAll('nav.tabs-l1 button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.querySelectorAll('nav.tabs-l2').forEach(n => n.style.display = (n.dataset.group === group ? 'flex' : 'none'));
+    const firstL2 = document.querySelector(`nav.tabs-l2[data-group="${group}"] button`);
+    activateL2(firstL2);
+  });
+});
+document.querySelectorAll('nav.tabs-l2 button').forEach(btn => {
+  btn.addEventListener('click', () => activateL2(btn));
+});
+function activateL2(btn) {
+  const group = btn.closest('nav.tabs-l2').dataset.group;
+  document.querySelectorAll(`nav.tabs-l2[data-group="${group}"] button`).forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('.tab-content').forEach(t => t.style.display = 'none');
+  document.getElementById('tab-' + btn.dataset.l2).style.display = 'block';
+  if (btn.dataset.l2 === 'calendar') renderCalendarPage();
+  if (btn.dataset.l2 === 'plan') renderPlan();
+  if (btn.dataset.l2 === 'analytics') renderAnalytics();
+  if (btn.dataset.l2 === 'reference') { loadReferenceLibrary().then(renderReference); }
+}
+
+// ---- API設定 ----
+// Geminiキーは単純保存。ThreadsはAccess Tokenを入れるとUser IDをサーバー経由で自動取得。
+const apiFieldMap = [
+  ['key-gemini', 'gemini'],
+];
+let apiFieldsBound = false;
+function initApiFields() {
+  const tokenEl = document.getElementById('key-threads-token');
+  const uidEl = document.getElementById('key-threads-uid');
+  const labelEl = document.getElementById('acct-label');
+  const kwEl = document.getElementById('acct-keywords');
+
+  // 値の反映は毎回。リスナーの登録は一度だけ
+  // （アカウント切り替えのたびに登録すると多重発火して保存が何度も走る）
+  apiFieldMap.forEach(([elId, stateKey]) => {
+    document.getElementById(elId).value = state.apiKeys[stateKey] || '';
+  });
+  // トークンは取得できないので、設定済みならプレースホルダで示す
+  tokenEl.value = '';
+  tokenEl.placeholder = state.apiKeys.hasToken ? '設定済み（変更する場合のみ入力）' : 'アクセストークンを貼り付け';
+  uidEl.value = state.apiKeys.threadsUserId || '';
+  if (labelEl) labelEl.value = state.apiKeys.label || '';
+  if (kwEl) kwEl.value = state.apiKeys.keywords || '';
+
+  if (!apiFieldsBound) {
+    apiFieldsBound = true;
+    apiFieldMap.forEach(([elId, stateKey]) => {
+      document.getElementById(elId).addEventListener('change', async () => {
+        state.apiKeys[stateKey] = document.getElementById(elId).value.trim();
+        updateApiDots();
+        await saveSettings();
+      });
+    });
+    tokenEl.addEventListener('change', async () => {
+      const v = tokenEl.value.trim();
+      if (!v) return;
+      const a = await saveAccountSettings({ threads_access_token: v });
+      if (!a) return;
+      state.apiKeys.hasToken = true;
+      tokenEl.value = '';
+      tokenEl.placeholder = '設定済み（変更する場合のみ入力）';
+      updateApiDots();
+      await resolveThreadsUserId(v);
+    });
+    if (labelEl) labelEl.addEventListener('change', async () => {
+      const a = await saveAccountSettings({ label: labelEl.value.trim() });
+      if (a) state.apiKeys.label = a.label;
+    });
+    if (kwEl) kwEl.addEventListener('change', async () => {
+      const a = await saveAccountSettings({ keywords: kwEl.value });
+      if (a) state.apiKeys.keywords = a.keywords;
+    });
+  }
+  updateApiDots();
+}
+async function resolveThreadsUserId(token) {
+  const uidEl = document.getElementById('key-threads-uid');
+  const statusEl = document.getElementById('threads-resolve-status');
+  if (!token) { statusEl.textContent = ''; return; }
+  statusEl.textContent = 'User IDを取得中…';
+  try {
+    const r = await api('/api/threads/resolve-user-id', { method: 'POST', body: JSON.stringify({ access_token: token }) });
+    uidEl.value = r.user_id;
+    state.apiKeys.threadsUserId = r.user_id;
+    // User ID もアカウント側に保存する（/api/settings には書かない）
+    await saveAccountSettings({ threads_user_id: r.user_id });
+    updateApiDots();
+    statusEl.textContent = `✅ User ID自動取得: ${r.user_id}${r.username ? '（@' + r.username + '）' : ''}`;
+  } catch (e) {
+    statusEl.textContent = '⚠️ User IDの自動取得に失敗しました。アクセストークンを確認してください（' + e.message + '）';
+  }
+}
+function updateApiDots() {
+  document.getElementById('dot-gemini').classList.toggle('set', !!state.apiKeys.gemini);
+  // トークンの値はサーバから取得できないので、設定済みフラグで判定する
+  document.getElementById('dot-threads').classList.toggle('set', !!(state.apiKeys.threadsUserId && state.apiKeys.hasToken));
+}
+// Geminiキーとテンプレートはログインアカウント共通。
+// ThreadsのUser ID・トークンはアカウントごとなので /api/threads-accounts に保存する
+// （両方に書くと、どちらが使われるか分からない二重管理になる）。
+async function saveSettings() {
+  await api('/api/settings', {
+    method: 'PUT',
+    body: JSON.stringify({
+      gemini_key: state.apiKeys.gemini,
+      template_rules: state.template.rules,
+    }),
+  });
+}
+
+async function loadRecovery() {
+  try {
+    const d = await api('/api/recovery');
+    document.getElementById('rec-question').value = d.secret_question || '';
+    document.getElementById('rec-email').value = '';
+    document.getElementById('rec-email').placeholder = d.has_email ? d.email_masked : 'example@example.com';
+    document.getElementById('dot-recovery').classList.toggle('set', !!d.has_secret);
+    document.getElementById('recovery-status').textContent = d.has_secret
+      ? '設定済みです。パスワードを忘れたときは、ログイン画面の「パスワードを忘れた方」から再設定できます。'
+      : '⚠️ 未設定です。このままだとパスワードを忘れたときに自分で復旧できません。';
+  } catch (e) {
+    document.getElementById('recovery-status').textContent = '読み込みに失敗しました';
+  }
+}
+
+document.getElementById('rec-save').addEventListener('click', async (ev) => {
+  const btn = ev.currentTarget, msg = document.getElementById('rec-msg');
+  const cur = document.getElementById('rec-current-pw').value;
+  if (!cur) { msg.textContent = '現在のパスワードを入力してください'; return; }
+  btn.disabled = true; msg.textContent = '保存中…';
+  try {
+    const body = { current_password: cur };
+    const q = document.getElementById('rec-question').value;
+    const ans = document.getElementById('rec-answer').value;
+    const mail = document.getElementById('rec-email').value.trim();
+    // 入力欄が空のときは送らない。常に送ると、質問だけ直したつもりで
+    // 登録済みのメールアドレスが黙って消える
+    if (mail) body.email = mail;
+    body.secret_question = q;
+    if (ans) body.secret_answer = ans;          // 空欄なら既存の答えを維持する
+    else if (!q.trim()) body.secret_answer = '';  // 両方空＝未設定に戻す
+    await api('/api/recovery', { method: 'PUT', body: JSON.stringify(body) });
+    document.getElementById('rec-answer').value = '';
+    document.getElementById('rec-current-pw').value = '';
+    msg.textContent = '✅ 保存しました';
+    await loadRecovery();
+  } catch (e) { msg.textContent = '⚠️ ' + (e.message || e); }
+  finally { btn.disabled = false; }
+});
+
+async function saveAccountSettings(patch) {
+  if (!activeAccount) { alert('先に左のサイドバーからアカウントを追加してください'); return null; }
+  const a = await api(`/api/threads-accounts/${activeAccount}`, {
+    method: 'PATCH', body: JSON.stringify(patch),
+  });
+  const i = accounts.findIndex(x => x.id === activeAccount);
+  if (i >= 0) accounts[i] = a;
+  renderAccounts();
+  return a;
+}
+
+// ---- 投稿テンプレート ----
+const templateEl = document.getElementById('template-rules');
+templateEl.addEventListener('change', async () => {
+  state.template.rules = templateEl.value;
+  await saveSettings();
+  document.getElementById('template-save-status').textContent = '保存しました';
+  setTimeout(() => document.getElementById('template-save-status').textContent = '', 1500);
+});
+document.getElementById('template-reset-btn').addEventListener('click', async () => {
+  templateEl.value = DEFAULT_TEMPLATE_RULES;
+  state.template.rules = DEFAULT_TEMPLATE_RULES;
+  await saveSettings();
+});
+
+// ---- 参照投稿（ツリー） ----
+async function loadReferenceLibrary() {
+  state.library = await api('/api/reference-library');
+}
+document.getElementById('ref-add-btn').addEventListener('click', async () => {
+  const main = document.getElementById('ref-main').value.trim();
+  if (!main) { alert('本文を入力してください'); return; }
+  await api('/api/reference-library', {
+    method: 'POST',
+    body: JSON.stringify({
+      main,
+      reply1: document.getElementById('ref-reply1').value.trim(),
+      reply2: document.getElementById('ref-reply2').value.trim(),
+      url: document.getElementById('ref-url').value.trim(),
+      date: document.getElementById('ref-date').value,
+      likes: Number(document.getElementById('ref-likes').value || 0),
+      replies: Number(document.getElementById('ref-replies').value || 0),
+      impressions: Number(document.getElementById('ref-impressions').value || 0),
+    }),
+  });
+  ['ref-main','ref-reply1','ref-reply2','ref-url','ref-date','ref-likes','ref-replies','ref-impressions'].forEach(id => document.getElementById(id).value = '');
+  await loadReferenceLibrary();
+  renderReference();
+});
+async function deleteRefItem(id) {
+  await api(`/api/reference-library/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  await loadReferenceLibrary();
+  renderReference();
+}
+function renderReference() {
+  const list = document.getElementById('ref-list');
+  document.getElementById('ref-count').textContent = state.library.length;
+  if (!state.library.length) {
+    list.innerHTML = '<div class="empty">まだ登録されていません</div>';
+    return;
+  }
+  list.innerHTML = state.library.map(item => {
+    const replyTexts = (item.replyTexts && item.replyTexts.length) ? item.replyTexts : [item.reply1, item.reply2].filter(Boolean);
+    const replyHtml = replyTexts.map((t, i) => `<div class="ref-node reply"><span class="ref-tag">リプライ${i+1}</span>${escapeHtml(t)}</div>`).join('');
+    return `
+    <div class="ref-item">
+      <div class="ref-thread">
+        <div class="ref-node"><span class="ref-tag">本文</span>${escapeHtml(item.main)}${item.source === 'auto' ? ' <span class="sub-hint">🤖自動収集</span>' : ''}</div>
+        ${replyHtml}
+      </div>
+      <div class="meta">
+        ${item.date ? `<span>📅 ${escapeHtml(item.date || "")}</span>` : ''}
+        <span>❤️ ${item.likes}</span>
+        <span>💬 ${item.replies}</span>
+        ${item.impressions ? `<span>👁 ${item.impressions}</span>` : ''}
+        ${item.url ? `<span><a href="${escapeHtml(safeHref(item.url))}" target="_blank" rel="noopener">元投稿</a></span>` : ''}
+      </div>
+      <div class="actions">
+        <button class="btn small critical" onclick="deleteRefItem('${item.id}')">削除</button>
+      </div>
+    </div>
+  `;
+  }).join('');
+}
+
+// ---- 企画（投稿生成） ----
+async function renderPlan() {
+  state.drafts = await api('/api/drafts');
+  document.getElementById('plan-ref-count').textContent = state.library.length;
+  document.getElementById('plan-template-status').textContent = state.template.rules.trim() ? '設定済み' : '未設定';
+  document.getElementById('plan-gemini-status').textContent = state.apiKeys.gemini ? '設定済み' : '未設定';
+  renderDrafts();
+}
+document.getElementById('gen-bulk-btn').addEventListener('click', () => generatePosts('bulk'));
+document.getElementById('gen-single-btn').addEventListener('click', () => generatePosts('single'));
+
+function buildReferenceText() {
+  return state.library.length
+    ? state.library.map((x,i) => {
+        const metrics = `いいね${x.likes}・リプライ${x.replies}${x.impressions ? `・インプレッション${x.impressions}` : ''}`;
+        let block = `${i+1}. [反応: ${metrics}] 本文:「${x.main}」`;
+        // 本人の連投(ツリー)があれば、続きのリプライも渡す（自動収集で本人の連投を取得済みの場合）
+        const replyTexts = (x.replyTexts && x.replyTexts.length) ? x.replyTexts : [x.reply1, x.reply2].filter(Boolean);
+        replyTexts.forEach((t, j) => { block += `\n   （続き${j+1}:「${t}」）`; });
+        return block;
+      }).join('\n')
+    : '（参照投稿は空です。一般的なビジネス系Threads投稿として作成してください）';
+}
+
+// 一時的な理由（混雑・未提供・レート超過・サーバエラー）なら次のモデルへ回す。
+// 認証エラー(401/403)や不正リクエスト(400)は全モデル共通なので即中断する。
+const GEMINI_FALLBACK_STATUS = new Set([429, 500, 502, 503, 404]);
+
+async function callGemini(prompt, apiKey) {
+  let lastErr = null;
+  for (const model of GEMINI_MODELS) {
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+        }
+      );
+      if (!res.ok) {
+        const errText = await res.text();
+        lastErr = new Error(`${model}: API error ${res.status}: ${errText.slice(0,150)}`);
+        if (GEMINI_FALLBACK_STATUS.has(res.status)) continue; // 次の（より古い）モデルへ
+        throw lastErr; // 400/401/403などは切り替えても直らないので中断
+      }
+      const data = await res.json();
+      let raw = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      return raw.trim().replace(/^```json\s*/i, '').replace(/^```\s*/, '').replace(/```\s*$/, '');
+    } catch (e) {
+      lastErr = e;
+      // ネットワークエラー等も次のモデルで再試行
+    }
+  }
+  throw lastErr || new Error('全モデルで生成に失敗しました');
+}
+
+async function generatePosts(mode) {
+  const apiKey = state.apiKeys.gemini;
+  if (!apiKey) { alert('「データ関連 > API設定」でGemini APIキーを入力してください'); return; }
+  const statusEl = document.getElementById('gen-status');
+  const bulkBtn = document.getElementById('gen-bulk-btn');
+  const singleBtn = document.getElementById('gen-single-btn');
+  bulkBtn.disabled = true; singleBtn.disabled = true;
+  statusEl.textContent = '生成中…（数十秒かかります）';
+
+  const libText = buildReferenceText();
+
+  try {
+    if (mode === 'bulk') {
+      const targetDate = document.getElementById('gen-date').value || tomorrowDate();
+      const existing = state.posts.filter(p => p.date === targetDate);
+      if (existing.length && !confirm(`${targetDate} には既に${existing.length}件の投稿があります。さらに5件追加しますか？`)) {
+        statusEl.textContent = '';
+        return;
+      }
+      const slotLabels = DAY_SLOTS.map((t, i) => `${i + 1}. ${t}（${SLOT_HINTS[i]}）`).join('\n');
+      const prompt = `あなたはSNS運用のプロです。以下はThreadsで実際に伸びた投稿の「本文」と「反応数（いいね・リプライ・インプレッション）」の一覧です。投稿者は様々で、反応数が大きいものほど伸びた投稿です。一部にはリプライも付いていますが、多くは本文のみです。これらは「どんな切り口・書き出し・テーマ・文体が伸びるか」を学ぶための参考材料であり、そのままツリーとして真似るものではありません。
+${libText}
+
+これらの傾向を踏まえ、Threadsアカウント向けに「1日分」の投稿を5セット作成してください。
+同じ日に5回投稿するので、5セットは必ず別々のテーマ・切り口にしてください。同じ話の言い換えは禁止です。
+投稿する時間帯と、その時間に読まれる状況は次のとおりです。時間帯に合った内容にしてください。
+${slotLabels}
+
+【ルール】
+${state.template.rules}
+
+出力は次のJSON配列のみを返してください。配列の順番は上の1〜5の時間帯の順に対応させてください。
+説明文・コードブロック記法(\`\`\`)は一切付けないでください。
+[{"slot":1,"main":"...","reply1":"...","reply2":"..."}, ...]`;
+
+      const raw = await callGemini(prompt, apiKey);
+      const sets = JSON.parse(raw);
+      if (!Array.isArray(sets) || !sets.length) throw new Error('生成結果の形式が不正です');
+
+      // slotの指定があればそれに従い、無ければ配列順で時間を割り当てる
+      const items = sets.slice(0, DAY_SLOTS.length).map((s, i) => {
+        const idx = Number.isInteger(s.slot) && s.slot >= 1 && s.slot <= DAY_SLOTS.length ? s.slot - 1 : i;
+        return {
+          date: targetDate, time: DAY_SLOTS[idx],
+          main: s.main || '', reply1: s.reply1 || '', reply2: s.reply2 || '', status: 'draft',
+        };
+      });
+      await api('/api/schedule-posts', { method: 'POST', body: JSON.stringify(items) });
+      state.posts = await api('/api/schedule-posts');
+      renderCalendarPage();
+      statusEl.textContent = `✅ ${items.length}件を ${targetDate} の下書きとして作成しました。「今週の投稿カレンダー」で内容を確認し、「投稿を予約」を押すと確定します。`;
+    } else {
+      const prompt = `あなたはSNS運用のプロです。以下はThreadsで実際に伸びた投稿の「本文」と「反応数（いいね・リプライ・インプレッション）」の一覧です。投稿者は様々で、反応数が大きいものほど伸びた投稿です。一部にはリプライも付いていますが、多くは本文のみです。これらは「どんな切り口・書き出し・テーマ・文体が伸びるか」を学ぶための参考材料であり、そのままツリーとして真似るものではありません。
+${libText}
+
+これらの傾向を踏まえ、Threadsアカウント向けに投稿を1件だけ作成してください。
+
+【ルール】
+${state.template.rules}
+
+出力は次のJSON形式のみを返してください。説明文・コードブロック記法(\`\`\`)は一切付けないでください。
+{"main":"...","reply1":"...","reply2":"..."}`;
+
+      const raw = await callGemini(prompt, apiKey);
+      const s = JSON.parse(raw);
+      await api('/api/drafts', {
+        method: 'POST',
+        body: JSON.stringify({ main: s.main || '', reply1: s.reply1 || '', reply2: s.reply2 || '', date: tomorrowDate(), time: '08:00' }),
+      });
+      state.drafts = await api('/api/drafts');
+      statusEl.textContent = '✅ 1件生成しました。下の「生成済み・未予約の投稿」から予約してください。';
+      renderDrafts();
+    }
+  } catch (e) {
+    console.error(e);
+    statusEl.textContent = '⚠️ 生成に失敗しました: ' + e.message;
+  } finally {
+    bulkBtn.disabled = false; singleBtn.disabled = false;
+  }
+}
+
+function renderDrafts() {
+  const panel = document.getElementById('drafts-panel');
+  const list = document.getElementById('drafts-list');
+  if (!state.drafts.length) { panel.style.display = 'none'; list.innerHTML = ''; return; }
+  panel.style.display = 'block';
+  list.innerHTML = state.drafts.map(d => `
+    <div class="draft-card">
+      <div class="schedule-row" style="margin-bottom:12px;">
+        <label>日付</label><input type="date" data-draft="${d.id}" data-field="date" value="${escapeHtml(d.date || "")}">
+        <label>時間</label><input type="time" data-draft="${d.id}" data-field="time" value="${escapeHtml(d.time || "")}">
+      </div>
+      <div class="post-line"><span class="tag">本文</span><textarea data-draft="${d.id}" data-field="main" rows="4">${escapeHtml(d.main)}</textarea></div>
+      <div class="post-line"><span class="tag">リプライ1</span><textarea data-draft="${d.id}" data-field="reply1" rows="3">${escapeHtml(d.reply1)}</textarea></div>
+      <div class="post-line"><span class="tag">リプライ2</span><textarea data-draft="${d.id}" data-field="reply2" rows="3">${escapeHtml(d.reply2)}</textarea></div>
+      <div class="actions">
+        <button class="btn good" onclick="reserveDraft('${d.id}')">予約する</button>
+        <button class="btn small critical" onclick="discardDraft('${d.id}')">破棄</button>
+      </div>
+    </div>
+  `).join('');
+  list.querySelectorAll('[data-draft]').forEach(el => {
+    el.addEventListener('change', async () => {
+      const d = state.drafts.find(x => x.id === el.dataset.draft);
+      if (!d) return;
+      d[el.dataset.field] = el.value;
+      await api(`/api/drafts/${el.dataset.draft}`, { method: 'PATCH', body: JSON.stringify({ [el.dataset.field]: el.value }) });
+    });
+  });
+}
+async function discardDraft(id) {
+  await api(`/api/drafts/${id}`, { method: 'DELETE' });
+  state.drafts = state.drafts.filter(d => d.id !== id);
+  renderDrafts();
+}
+async function reserveDraft(id) {
+  const d = state.drafts.find(x => x.id === id);
+  if (!d) return;
+  if (!d.date || !d.time) { alert('日付と時間を指定してください'); return; }
+  await api('/api/schedule-posts', {
+    method: 'POST',
+    body: JSON.stringify({ date: d.date, time: d.time, main: d.main, reply1: d.reply1, reply2: d.reply2, status: 'draft' }),
+  });
+  await api(`/api/drafts/${id}`, { method: 'DELETE' });
+  state.drafts = state.drafts.filter(x => x.id !== id);
+  state.posts = await api('/api/schedule-posts');
+  renderDrafts();
+  alert('スケジュールに予約しました。「今週の投稿カレンダー」で確認できます。');
+}
+
+// ---- 投稿カレンダー ----
+function findPost(id) { return state.posts.find(p => p.id === id); }
+async function scheduleSet(id, btn) {
+  if (btn) { btn.disabled = true; btn.dataset.orig = btn.textContent; btn.textContent = '予約中…'; }
+  try {
+    const updated = await api(`/api/schedule-posts/${id}`, { method: 'PATCH', body: JSON.stringify({ status: 'scheduled' }) });
+    Object.assign(findPost(id), updated);
+  } catch (e) {
+    alert(`予約に失敗しました：${e && e.message || e}`);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = btn.dataset.orig || '投稿を予約'; }
+    renderCalendarPage();
+  }
+}
+// 1日5件×7日で35回押すことになるので、日付単位でまとめて予約できるようにする
+async function bulkSchedule(date, btn) {
+  const targets = state.posts.filter(p => p.date === date && p.status === 'draft');
+  if (!targets.length) return;
+  if (!confirm(`${date} の下書き${targets.length}件を予約済みにします。\n\n予約すると、指定の時間に自動で投稿されます。よろしいですか？`)) return;
+  if (btn) { btn.disabled = true; btn.textContent = '予約中…'; }
+  let ok = 0, ng = 0;
+  for (const p of targets) {
+    try {
+      const updated = await api(`/api/schedule-posts/${p.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'scheduled' }) });
+      Object.assign(findPost(p.id), updated);
+      ok++;
+    } catch (e) { ng++; }
+  }
+  renderCalendarPage();
+  alert(ng ? `${ok}件を予約しました。${ng}件は失敗しました。` : `${ok}件を予約しました。指定の時間に自動投稿されます。`);
+}
+
+async function executeSet(id, btn) {
+  // 連打による二重投稿を防ぐ。サーバ側でも 'posting' 確保で弾いているが、
+  // 押しても見た目が変わらないと連打を誘発するのでフロントでも止める。
+  if (btn) { btn.disabled = true; btn.dataset.orig = btn.textContent; btn.textContent = '投稿中…'; }
+  try {
+    const updated = await api(`/api/schedule-posts/${id}/execute`, { method: 'POST' });
+    Object.assign(findPost(id), updated);
+  } catch (e) {
+    const msg = String(e && e.message || e);
+    alert(msg.includes('409')
+      ? 'この投稿は現在処理中です。しばらく待ってから画面を更新してください。'
+      : `投稿に失敗しました：${msg}`);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = btn.dataset.orig || '投稿を実行'; }
+    renderCalendarPage();
+  }
+}
+function isTodayOrPast(dateStr) { return dateStr <= formatDate(new Date()); }
+
+const STATUS_LABEL = {
+  draft: '下書き', scheduled: '予約済み', posting: '投稿中', posted: '投稿済み', failed: '投稿失敗',
+};
+
+function renderCalendarPage() {
+  const listEl = document.getElementById('review-list');
+  if (!state.posts.length) {
+    listEl.innerHTML = '<div class="empty">まだ投稿が生成されていません。「企画」ページから作成してください。</div>';
+    return;
+  }
+  const sorted = state.posts.slice().sort((a,b) => (a.date + a.time).localeCompare(b.date + b.time));
+  const dates = [...new Set(sorted.map(p => p.date))];
+
+  let html = '';
+  dates.forEach(date => {
+    const posts = sorted.filter(p => p.date === date);
+    const draftCount = posts.filter(p => p.status === 'draft').length;
+    html += `<div class="date-group-title">${shortDate(date)}（${weekdayLabel(date)}）<span class="count">${posts.length}件</span>`
+      + (draftCount ? ` <button class="btn small" data-bulk-date="${escapeHtml(date)}">この日の下書き${draftCount}件をまとめて予約</button>` : '')
+      + `</div>`;
+    posts.forEach(p => {
+      html += `
+        <div class="set-card">
+          <div class="set-head">
+            <div class="schedule-row">
+              <label>日付</label><input type="date" data-post="${p.id}" data-field="date" value="${escapeHtml(p.date || "")}" ${p.status === 'posting' ? 'disabled' : ''}>
+              <label>時間</label><input type="time" data-post="${p.id}" data-field="time" value="${escapeHtml(p.time || "")}" ${p.status === 'posting' ? 'disabled' : ''}>
+            </div>
+            <span class="badge badge-${p.status}">${STATUS_LABEL[p.status]}</span>
+          </div>
+          <div class="post-line"><span class="tag">本文</span><textarea data-post="${p.id}" data-field="main" rows="4" ${p.status === 'posting' ? 'disabled' : ''}>${escapeHtml(p.main)}</textarea></div>
+          <div class="post-line"><span class="tag">リプライ1</span><textarea data-post="${p.id}" data-field="reply1" rows="3" ${p.status === 'posting' ? 'disabled' : ''}>${escapeHtml(p.reply1)}</textarea></div>
+          <div class="post-line"><span class="tag">リプライ2</span><textarea data-post="${p.id}" data-field="reply2" rows="3" ${p.status === 'posting' ? 'disabled' : ''}>${escapeHtml(p.reply2)}</textarea></div>
+          <div class="actions">
+            ${p.status === 'draft' ? (
+              isTodayOrPast(p.date)
+                ? `<button class="btn small good" onclick="executeSet('${p.id}', this)">投稿を実行</button>`
+                : `<button class="btn small" onclick="scheduleSet('${p.id}', this)">投稿を予約</button>`
+            ) : ''}
+            ${p.status === 'scheduled' && isTodayOrPast(p.date) ? `<button class="btn small good" onclick="executeSet('${p.id}', this)">投稿を実行</button>` : ''}
+            ${p.status === 'failed' ? `<button class="btn small good" onclick="executeSet('${p.id}', this)">再実行する</button>` : ''}
+          </div>
+          ${p.status === 'scheduled' && !isTodayOrPast(p.date) ? `<div class="impressions">🗓 ${shortDate(p.date)}（${weekdayLabel(p.date)}） ${p.time} に自動投稿予定<br><span class="note">※ 5分ごとのチェックのため、実行が数分前後することがあります</span></div>` : ''}
+          ${p.status === 'posting' ? `<div class="impressions">⏳ 投稿処理中です。完了までしばらくお待ちください</div>` : ''}
+          ${p.status === 'posted' && (p.error || '').startsWith('[デモ]') ? `<div class="impressions">⚠️ これはデモ動作です。実際にはThreadsへ投稿されていません（設定ページでThreads APIを登録してください）</div>` : ''}
+          ${p.status === 'failed' ? `<div class="impressions">⚠️ 投稿に失敗しました${p.error ? `：${escapeHtml(p.error)}` : ''}</div>` : ''}
+          ${p.status === 'posted' ? `<div class="impressions">📊 インプレッション: ${(p.impressions ?? 0).toLocaleString()}${p.impressions >= 10000 ? '（伸びた投稿🎉）' : ''}</div>` : ''}
+        </div>
+      `;
+    });
+  });
+  listEl.innerHTML = html;
+
+  listEl.querySelectorAll('[data-bulk-date]').forEach(b => {
+    b.addEventListener('click', () => bulkSchedule(b.dataset.bulkDate, b));
+  });
+  listEl.querySelectorAll('[data-post]').forEach(el => {
+    el.addEventListener('change', async () => {
+      const p = findPost(el.dataset.post);
+      if (!p) return;
+      const before = p[el.dataset.field];
+      p[el.dataset.field] = el.value;
+      try {
+        await api(`/api/schedule-posts/${el.dataset.post}`, { method: 'PATCH', body: JSON.stringify({ [el.dataset.field]: el.value }) });
+      } catch (e) {
+        // 投稿処理中(409)などで保存できなかった場合、画面だけ変わって保存された
+        // ように見えるのを防ぐため、元の値に戻して知らせる
+        p[el.dataset.field] = before;
+        const msg = String(e && e.message || e);
+        alert(msg.includes('409')
+          ? 'この投稿は現在処理中のため変更できません。完了後にやり直してください。'
+          : `保存に失敗しました：${msg}`);
+      }
+      renderCalendarPage();
+    });
+  });
+}
+
+// ---- 分析 ----
+function renderAnalytics() {
+  const allPosts = state.posts;
+  const posted = allPosts.filter(s => s.status === 'posted');
+  const grown = posted.filter(s => s.impressions >= 10000);
+
+  const stats = [
+    { val: allPosts.length, lbl: '総投稿数' },
+    { val: allPosts.filter(s => s.status === 'scheduled').length, lbl: '予約済み' },
+    { val: allPosts.filter(s => s.status === 'failed').length, lbl: '投稿失敗' },
+    { val: posted.length, lbl: '投稿済み' },
+    { val: grown.length, lbl: '伸びた投稿(1万超)' },
+  ];
+  document.getElementById('stat-row').innerHTML = stats.map(s => `
+    <div class="stat-tile"><div class="val">${s.val}</div><div class="lbl">${s.lbl}</div></div>
+  `).join('');
+
+  const barList = document.getElementById('bar-list');
+  if (!posted.length) {
+    barList.innerHTML = '<div class="empty">投稿済みのデータがまだありません（投稿カレンダーで「投稿を実行」してください）</div>';
+    return;
+  }
+  const sorted = posted.slice().sort((a,b) => b.impressions - a.impressions);
+  const maxVal = Math.max(...sorted.map(s => s.impressions), 10000) * 1.1;
+  const threshold = (10000 / maxVal) * 100;
+
+  barList.innerHTML = sorted.map(s => {
+    const pct = (s.impressions / maxVal) * 100;
+    const over = s.impressions >= 10000;
+    return `
+      <div class="bar-row">
+        <span>${shortDate(s.date)} ${s.time}</span>
+        <div class="bar-track">
+          <div class="bar-fill ${over ? 'over' : 'under'}" style="width:${pct}%"></div>
+          <div class="bar-threshold" style="left:${threshold}%"></div>
+        </div>
+        <span style="text-align:right;font-variant-numeric:tabular-nums;">${s.impressions.toLocaleString()}</span>
+      </div>
+    `;
+  }).join('');
+}
+
+// ---- init ----
+// アカウント切り替え時にも同じものを読み直す
+async function reloadAll() {
+  const acc = accounts.find(a => a.id === activeAccount);
+  const [settings, library, posts] = await Promise.all([
+    api('/api/settings'),
+    api('/api/reference-library'),
+    api('/api/schedule-posts'),
+  ]);
+  // Geminiキーとテンプレートはログインアカウント共通。ThreadsのIDとトークンはアカウントごと。
+  state.apiKeys = {
+    gemini: settings.gemini_key || '',
+    threadsUserId: acc ? (acc.threads_user_id || '') : '',
+    threadsToken: '',
+    hasToken: acc ? !!acc.has_token : false,
+    label: acc ? acc.label : '',
+    keywords: acc ? (acc.keywords || '') : '',
+  };
+  state.template.rules = settings.template_rules || DEFAULT_TEMPLATE_RULES;
+  state.library = library;
+  state.posts = posts;
+
+  initApiFields();
+  const genDateEl = document.getElementById('gen-date');
+  if (genDateEl && !genDateEl.value) genDateEl.value = tomorrowDate();
+  templateEl.value = state.template.rules;
+  renderReference();
+  renderCalendarPage();
+  renderAccountEmptyState();
+  loadRecovery();
+}
+
+function renderAccountEmptyState() {
+  const el = document.getElementById('review-list');
+  if (!accounts.length && el) {
+    el.innerHTML = '<div class="empty">左のサイドバーから最初のThreadsアカウントを追加してください。<br>'
+      + 'アカウントごとに下書き・予約・投稿済み・参考投稿を分けて管理できます。</div>';
+  }
+}
+
+async function init() {
+  await loadAccounts();
+  await reloadAll();
+}
+init().catch(e => {
+  console.error(e);
+  document.getElementById('review-list').innerHTML = `<div class="empty">読み込みに失敗しました: ${escapeHtml(e.message)}</div>`;
+});
+</script>
+</body>
+</html>

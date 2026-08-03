@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>初期設定｜Threads運用ツール</title>
+<style>
+  :root { --bg:#f7f8fa; --card:#fff; --line:#e3e6ea; --text:#1c2024; --muted:#6b7280;
+          --accent:#3b5bdb; --good:#0ca678; --warn:#d97706; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+         font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif;
+         line-height:1.75; }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 24px 16px 80px; }
+  h1 { font-size: 22px; margin: 8px 0 4px; }
+  .lead { color: var(--muted); margin: 0 0 24px; font-size: 14px; }
+  .step { background: var(--card); border:1px solid var(--line); border-radius:12px;
+          padding:20px; margin-bottom:16px; }
+  .step h2 { font-size:16px; margin:0 0 10px; display:flex; align-items:center; gap:10px; }
+  .num { display:inline-flex; align-items:center; justify-content:center; width:26px; height:26px;
+         border-radius:50%; background:var(--accent); color:#fff; font-size:14px; flex:none; }
+  p { margin: 8px 0; font-size: 14px; }
+  ol, ul { font-size: 14px; padding-left: 22px; }
+  li { margin: 6px 0; }
+  code { background:#eef0f3; padding:2px 6px; border-radius:4px; font-size:13px; }
+  .btn { display:inline-block; background:var(--accent); color:#fff; border:none; border-radius:8px;
+         padding:12px 20px; font-size:15px; cursor:pointer; text-decoration:none; }
+  .btn:disabled { opacity:.5; cursor:not-allowed; }
+  .btn.sub { background:#fff; color:var(--text); border:1px solid var(--line); font-size:13px; padding:8px 14px; }
+  .note { color:var(--muted); font-size:13px; }
+  .warn { background:#fff7ed; border:1px solid #fed7aa; border-radius:8px; padding:12px; font-size:13px; margin:12px 0; }
+  details { margin-top:16px; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; }
+  summary { cursor:pointer; font-size:15px; font-weight:600; }
+  .tokrow { display:flex; gap:8px; align-items:center; margin:12px 0; flex-wrap:wrap; }
+  input[type=text], input[type=password] { flex:1; min-width:240px; padding:9px 10px;
+         border:1px solid var(--line); border-radius:6px; font-family:ui-monospace,monospace; font-size:13px; }
+  .hash { font-family:ui-monospace,monospace; font-size:12px; color:var(--muted); }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p><a href="/">← ツールに戻る</a></p>
+  <h1>初期設定</h1>
+  <p class="lead">伸びている投稿を自動で集めるChrome拡張機能を入れます。3ステップ、5分ほどで終わります。</p>
+
+  <div class="step">
+    <h2><span class="num">1</span>拡張機能をダウンロード</h2>
+    <p>下のボタンから、<strong>あなた専用の設定が入った状態</strong>でダウンロードされます。URLやキーを手で入力する必要はありません。</p>
+    <p><a class="btn" href="/download/extension.zip" id="dl">拡張機能をダウンロード</a></p>
+    <div class="warn">
+      <strong>このzipは他の人に渡さないでください。</strong>
+      あなた専用の鍵が入っています。他の人が使うと、その人が集めた投稿があなたのデータに混ざります。
+    </div>
+    <p class="note">同梱バージョン: <span class="hash" id="exthash">読み込み中…</span></p>
+  </div>
+
+  <div class="step">
+    <h2><span class="num">2</span>Chromeに読み込む</h2>
+    <ol>
+      <li>ダウンロードしたzipを<strong>解凍</strong>します（ダブルクリックでフォルダになります）</li>
+      <li>Chromeのアドレス欄に <code>chrome://extensions</code> と入力して開きます</li>
+      <li>画面右上の<strong>「デベロッパーモード」</strong>をオンにします</li>
+      <li>左上に出てくる<strong>「パッケージ化されていない拡張機能を読み込む」</strong>をクリック</li>
+      <li>解凍してできた <code>buzz-threads-collector</code> フォルダを選びます</li>
+    </ol>
+    <div class="warn">
+      デベロッパーモードをオンにすると、Chromeを起動するたびに
+      「デベロッパーモードの拡張機能を無効にする」という確認バーが出ることがあります。
+      これは正常な表示なので、そのまま閉じて問題ありません。
+    </div>
+    <p class="note">フォルダを選ぶときは、<code>manifest.json</code> が直接入っている階層を選んでください。
+      ひとつ上の階層だと読み込めません。</p>
+  </div>
+
+  <div class="step">
+    <h2><span class="num">3</span>集めたいキーワードを設定して開始</h2>
+    <ol>
+      <li>Chromeの右上に出た拡張機能のアイコンをクリックします</li>
+      <li><strong>キーワード</strong>欄に、自分のジャンルの言葉を1行ずつ入れます（例: 副業、子育て、筋トレ）</li>
+      <li>「開始」を押すと、Threadsを巡回して伸びている投稿を集め始めます</li>
+    </ol>
+    <p class="note">集まった投稿は、ツールの「参照投稿」で使えるようになります。
+      <strong>あなたが集めた投稿は、あなたにしか見えません。</strong></p>
+  </div>
+
+  <details>
+    <summary>うまく動かないとき</summary>
+    <p class="note">通常はこの欄を触る必要はありません。ダウンロードしたzipに設定が入っています。</p>
+    <div class="tokrow">
+      <input type="password" id="token" readonly value="読み込み中…">
+      <button class="btn sub" id="toggle">表示</button>
+      <button class="btn sub" id="copy">コピー</button>
+    </div>
+    <p class="note">拡張機能の設定画面で「アクセストークン」欄が空のときは、上の値を貼り付けてください。</p>
+    <hr style="border:none;border-top:1px solid var(--line);margin:16px 0">
+    <p><button class="btn sub" id="regen">トークンを再発行する</button></p>
+    <p class="note">鍵が他の人に知られたときに使います。
+      <strong>再発行すると、いま入っている拡張機能は動かなくなります。</strong>
+      もう一度ダウンロードして、同じ手順で入れ直してください。</p>
+  </details>
+</div>
+
+<script>
+async function api(path, opts) {
+  const res = await fetch(path, { ...(opts || {}), headers: { 'Content-Type': 'application/json' } });
+  if (res.status === 401) { location.href = '/login'; throw new Error('unauthorized'); }
+  if (!res.ok) throw new Error(`${res.status} ${(await res.text()).slice(0, 200)}`);
+  return res.json();
+}
+const tokenEl = document.getElementById('token');
+let revealed = false;
+
+async function load() {
+  try {
+    const d = await api('/api/ingest-token', { method: 'POST' });
+    tokenEl.value = d.token;
+    tokenEl.dataset.val = d.token;
+  } catch (e) { tokenEl.value = '取得に失敗しました'; }
+  try {
+    const i = await api('/api/extension-info');
+    document.getElementById('exthash').textContent = i.hash;
+    if (i.missing && i.missing.length) {
+      document.getElementById('exthash').textContent = `⚠️ ファイル不足: ${i.missing.join(', ')}`;
+      document.getElementById('dl').style.pointerEvents = 'none';
+      document.getElementById('dl').style.opacity = '.5';
+    }
+  } catch (e) { document.getElementById('exthash').textContent = '不明'; }
+}
+document.getElementById('toggle').addEventListener('click', () => {
+  revealed = !revealed;
+  tokenEl.type = revealed ? 'text' : 'password';
+  document.getElementById('toggle').textContent = revealed ? '隠す' : '表示';
+});
+document.getElementById('copy').addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText(tokenEl.dataset.val || ''); alert('コピーしました'); }
+  catch (e) { alert('コピーできませんでした。「表示」を押して手動で選択してください'); }
+});
+document.getElementById('regen').addEventListener('click', async (ev) => {
+  if (!confirm('トークンを再発行します。\n\nいま入っている拡張機能は動かなくなるので、もう一度ダウンロードして入れ直してください。\n\n再発行しますか？')) return;
+  const btn = ev.currentTarget;
+  btn.disabled = true; btn.textContent = '再発行中…';
+  try {
+    const d = await api('/api/ingest-token/regenerate', { method: 'POST' });
+    tokenEl.value = revealed ? d.token : d.token;
+    tokenEl.dataset.val = d.token;
+    alert('再発行しました。上の「拡張機能をダウンロード」から取り直して、入れ直してください。');
+  } catch (e) { alert(`再発行に失敗しました：${e.message || e}`); }
+  finally { btn.disabled = false; btn.textContent = 'トークンを再発行する'; }
+});
+load();
+</script>
+</body>
+</html>

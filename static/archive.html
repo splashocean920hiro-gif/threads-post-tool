@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>Threadsバズ投稿アーカイブ</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; max-width: 860px; margin: 24px auto; padding: 0 16px; color: #222; }
+  h1 { font-size: 1.3rem; }
+  .note { color: #666; font-size: 0.85rem; }
+  .card { border: 1px solid #ddd; border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; }
+  .stats { font-size: 0.85rem; color: #555; margin-top: 6px; }
+  .text { white-space: pre-wrap; }
+  a { color: #0a7; }
+  input { padding: 6px 8px; width: 240px; }
+</style>
+</head>
+<body>
+<h1>🧵 Threadsバズ投稿アーカイブ</h1>
+<p class="note">あなたが収集した投稿の一覧です。他の人が集めた投稿は含まれません。</p>
+<button id="loadBtn">読み込み</button>
+<div id="list"></div>
+<script>
+function esc(v) {
+  return String(v == null ? '' : v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+function safeUrl(u) {
+  // http(s) 以外のスキームを弾く（javascript: 等を踏まないため）
+  try { const p = new URL(u); return (p.protocol === 'https:' || p.protocol === 'http:') ? p.href : '#'; }
+  catch (e) { return '#'; }
+}
+async function load() {
+  const res = await fetch('/api/reference-posts?limit=100');
+  const list = document.getElementById('list');
+  if (!res.ok) { list.textContent = '読み込み失敗: ' + res.status; return; }
+  const rows = await res.json();
+  list.innerHTML = rows.map(r => `
+    <div class="card">
+      <div class="text">${esc(r.text || '(本文未取得)')}</div>
+      <div class="stats">
+        👍 ${esc(r.likes ?? '-')} ・ 💬 ${esc(r.reply_count ?? '-')} ・ 👁 ${esc(r.impressions ?? '-')}
+        ・ ${esc(r.posted_at || '')} ・ <a href="${safeUrl(r.url)}" target="_blank" rel="noopener">投稿を見る</a>
+      </div>
+    </div>
+  `).join('') || '<p class="note">まだ収集された投稿はありません。</p>';
+}
+document.getElementById('loadBtn').onclick = load;
+</script>
+</body>
+</html>

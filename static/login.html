@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ログイン | Threads運用ツール</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Hiragino Maru Gothic ProN', 'BIZ UDPGothic', 'Noto Sans JP', sans-serif;
+  background: #f4f1ea; color: #2c2c2c;
+  min-height: 100vh; display: flex; align-items: center; justify-content: center;
+  padding: 16px;
+}
+.box {
+  background: #fff; padding: 32px 28px; border-radius: 16px;
+  box-shadow: 0 8px 24px rgba(30,20,10,0.09); width: 100%; max-width: 340px;
+}
+h1 { font-size: 1.15rem; margin-bottom: 4px; }
+p.sub { font-size: 0.78rem; color: #898781; margin-bottom: 18px; }
+label { display: block; font-size: 0.76rem; font-weight: bold; margin-bottom: 4px; color: #52514e; }
+input {
+  width: 100%; padding: 11px 12px; border: 1.5px solid #e0dbd0; border-radius: 10px;
+  margin-bottom: 14px; font-size: 1rem; background: #f4f1ea; color: #2c2c2c;
+}
+input:focus { outline: none; border-color: #8b5cf6; background: #fff; box-shadow: 0 0 0 3px rgba(139,92,246,0.14); }
+button.primary {
+  width: 100%; padding: 11px; border: none; border-radius: 10px;
+  background: #8b5cf6; color: #fff; font-weight: bold; font-size: 0.95rem; cursor: pointer;
+}
+button.primary:disabled { opacity: 0.6; cursor: not-allowed; }
+.switch {
+  width: 100%; background: none; border: none; margin-top: 14px;
+  color: #8b5cf6; font-size: 0.82rem; text-decoration: underline; cursor: pointer; text-align: center;
+}
+.err { color: #d03b3b; font-size: 0.8rem; margin-bottom: 10px; display: none; }
+.hint { font-size: 0.68rem; color: #a8a6a0; margin-top: -8px; margin-bottom: 14px; }
+</style>
+</head>
+<body>
+<!-- ログインフォーム -->
+<form class="box" id="login-form">
+  <h1>🧵 Threads運用ツール</h1>
+  <p class="sub">IDとパスワードでログイン</p>
+  <div class="err" id="login-err"></div>
+  <label>ID</label>
+  <input type="text" id="login-id" placeholder="ユーザーID" autocomplete="username" autofocus>
+  <label>パスワード</label>
+  <input type="password" id="login-pw" placeholder="パスワード" autocomplete="current-password">
+  <p style="font-size:12px;margin:8px 0 0;text-align:right"><a href="/forgot">パスワードを忘れた方</a></p>
+  <button type="submit" class="primary" id="login-btn">ログイン</button>
+  <button type="button" class="switch" id="to-register">新規登録はこちら</button>
+</form>
+
+<!-- 新規登録フォーム -->
+<form class="box" id="register-form" style="display:none;">
+  <h1>🧵 新規登録</h1>
+  <p class="sub">IDとパスワードを決めてください</p>
+  <div class="err" id="register-err"></div>
+  <label>ID</label>
+  <input type="text" id="reg-id" placeholder="ユーザーID" autocomplete="username">
+  <div class="hint">英数字・_ . - の3〜32文字</div>
+  <label>パスワード</label>
+  <input type="password" id="reg-pw" placeholder="パスワード（8文字以上）" autocomplete="new-password">
+  <button type="submit" class="primary" id="register-btn">登録してはじめる</button>
+  <button type="button" class="switch" id="to-login">ログインに戻る</button>
+</form>
+
+<script>
+const loginForm = document.getElementById('login-form');
+const registerForm = document.getElementById('register-form');
+
+document.getElementById('to-register').onclick = () => {
+  loginForm.style.display = 'none';
+  registerForm.style.display = 'block';
+  document.getElementById('reg-id').focus();
+};
+document.getElementById('to-login').onclick = () => {
+  registerForm.style.display = 'none';
+  loginForm.style.display = 'block';
+  document.getElementById('login-id').focus();
+};
+
+loginForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('login-btn');
+  const err = document.getElementById('login-err');
+  btn.disabled = true;
+  err.style.display = 'none';
+  try {
+    const res = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: document.getElementById('login-id').value.trim(),
+        password: document.getElementById('login-pw').value,
+      }),
+    });
+    if (res.ok) {
+      location.href = '/';
+    } else {
+      const d = await res.json().catch(() => ({}));
+      err.textContent = d.error || 'ログインに失敗しました';
+      err.style.display = 'block';
+    }
+  } catch (e2) {
+    err.textContent = '通信エラー: ' + e2.message;
+    err.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+registerForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('register-btn');
+  const err = document.getElementById('register-err');
+  btn.disabled = true;
+  err.style.display = 'none';
+  try {
+    const res = await fetch('/api/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: document.getElementById('reg-id').value.trim(),
+        password: document.getElementById('reg-pw').value,
+      }),
+    });
+    if (res.ok) {
+      location.href = '/';
+    } else {
+      const d = await res.json().catch(() => ({}));
+      err.textContent = d.error || '登録に失敗しました';
+      err.style.display = 'block';
+    }
+  } catch (e2) {
+    err.textContent = '通信エラー: ' + e2.message;
+    err.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+  }
+});
+</script>
+</body>
+</html>

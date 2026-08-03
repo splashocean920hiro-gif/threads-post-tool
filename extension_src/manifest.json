@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "Threadsバズ投稿収集",
+  "version": "1.0.0",
+  "description": "Threadsの検索結果から、反応が多い投稿を自動で集めて、自分のThreads運用ツールに保存します。投稿・いいね・フォローはしません。",
+  "permissions": [
+    "storage",
+    "tabs",
+    "alarms",
+    "notifications"
+  ],
+  "host_permissions": [
+    "https://www.threads.com/*",
+    "https://www.threads.net/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.threads.com/*",
+        "https://www.threads.net/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Threadsバズ投稿収集"
+  }
+}

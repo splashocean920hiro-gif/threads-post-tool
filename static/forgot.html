@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>パスワードの再設定｜Threads運用ツール</title>
+<style>
+  :root { --bg:#f6f2ea; --card:#fff; --line:#e6dfd3; --text:#2a2320; --muted:#8a7f75;
+          --accent:#7c5cf0; --good:#0ca678; --bad:#d64545; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); min-height:100vh;
+         display:flex; align-items:center; justify-content:center; padding:24px;
+         font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:16px;
+          padding:32px 28px; width:100%; max-width:440px; box-shadow:0 2px 12px rgba(0,0,0,.04); }
+  h1 { font-size:19px; margin:0 0 6px; }
+  .lead { font-size:13px; color:var(--muted); margin:0 0 22px; line-height:1.7; }
+  label { display:block; font-size:13px; font-weight:600; margin:16px 0 6px; }
+  input { width:100%; padding:11px 12px; border:1.5px solid var(--line); border-radius:8px;
+          font-size:15px; background:#fff; color:var(--text); }
+  input:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(124,92,240,.12); }
+  .btn { width:100%; margin-top:20px; padding:12px; border:none; border-radius:8px;
+         background:var(--accent); color:#fff; font-size:15px; font-weight:600; cursor:pointer; }
+  .btn:disabled { opacity:.5; cursor:not-allowed; }
+  .msg { margin-top:14px; font-size:13px; line-height:1.7; }
+  .msg.err { color:var(--bad); }
+  .msg.ok { color:var(--good); }
+  .qbox { background:var(--bg); border:1px solid var(--line); border-radius:8px;
+          padding:12px 14px; font-size:14px; margin-top:16px; line-height:1.6; }
+  .qbox .qlabel { font-size:11px; color:var(--muted); display:block; margin-bottom:4px; }
+  .foot { margin-top:22px; font-size:13px; text-align:center; }
+  a { color:var(--accent); }
+  .step { display:none; }
+  .step.active { display:block; }
+  .hint { font-size:12px; color:var(--muted); margin-top:6px; line-height:1.6; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>パスワードの再設定</h1>
+  <p class="lead">登録した「秘密の質問」に答えると、新しいパスワードを設定できます。<br>
+    ※ 元のパスワードをお伝えすることはできません（安全のため、元に戻せない形で保存しています）</p>
+
+  <!-- ステップ1: ユーザーID -->
+  <div class="step active" id="step1">
+    <label for="username">ユーザーID</label>
+    <input id="username" autocomplete="username" placeholder="登録したユーザーID">
+    <button class="btn" id="btn1">次へ</button>
+  </div>
+
+  <!-- ステップ2: 秘密の質問 -->
+  <div class="step" id="step2">
+    <div class="qbox"><span class="qlabel">秘密の質問</span><span id="question"></span></div>
+    <label for="answer">答え</label>
+    <input id="answer" type="password" autocomplete="off" placeholder="登録した答え">
+    <p class="hint">大文字小文字・全角半角の違いと、<strong>空白は無視されます</strong>。<br>
+      <strong>ひらがなとカタカナは区別されます。</strong></p>
+    <button class="btn" id="btn2">答えを確認する</button>
+  </div>
+
+  <!-- ステップ3: 新しいパスワード -->
+  <div class="step" id="step3">
+    <p class="hint" id="step3-hint"></p>
+    <label for="pw1">新しいパスワード</label>
+    <input id="pw1" type="password" autocomplete="new-password" placeholder="8文字以上">
+    <label for="pw2">もう一度入力</label>
+    <input id="pw2" type="password" autocomplete="new-password" placeholder="確認のため再入力">
+    <button class="btn" id="btn3">パスワードを設定する</button>
+  </div>
+
+  <div class="msg" id="msg"></div>
+  <div class="foot"><a href="/login">ログイン画面に戻る</a></div>
+</div>
+
+<script>
+let resetToken = '';
+const $ = id => document.getElementById(id);
+
+function show(step) {
+  ['step1', 'step2', 'step3'].forEach(s => $(s).classList.toggle('active', s === step));
+}
+function say(text, cls) {
+  const m = $('msg');
+  m.textContent = text || '';
+  m.className = 'msg' + (cls ? ' ' + cls : '');
+}
+async function post(path, body) {
+  const res = await fetch(path, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  let data = {};
+  try { data = await res.json(); } catch (e) {}
+  if (!res.ok) throw new Error(data.error || `エラーが発生しました (${res.status})`);
+  return data;
+}
+async function run(btn, fn) {
+  btn.disabled = true;
+  const orig = btn.textContent;
+  btn.textContent = '処理中…';
+  try { await fn(); } catch (e) { say(e.message || String(e), 'err'); }
+  finally { btn.disabled = false; btn.textContent = orig; }
+}
+
+$('btn1').addEventListener('click', () => run($('btn1'), async () => {
+  say('');
+  const u = $('username').value.trim();
+  if (!u) { say('ユーザーIDを入力してください', 'err'); return; }
+  const d = await post('/api/forgot/question', { username: u });
+  $('question').textContent = d.question;   // textContent なのでHTMLとして解釈されない
+  show('step2');
+  $('answer').focus();
+}));
+
+$('btn2').addEventListener('click', () => run($('btn2'), async () => {
+  say('');
+  const d = await post('/api/forgot/verify', {
+    username: $('username').value.trim(), answer: $('answer').value,
+  });
+  if (d.sent_to) {
+    say(`${d.sent_to} に再設定用のコードを送りました。メールをご確認ください。`, 'ok');
+    return;
+  }
+  resetToken = d.token;
+  $('step3-hint').textContent = `本人確認ができました。${d.expires_minutes}分以内に新しいパスワードを設定してください。`;
+  show('step3');
+  $('pw1').focus();
+}));
+
+$('btn3').addEventListener('click', () => run($('btn3'), async () => {
+  say('');
+  const p1 = $('pw1').value, p2 = $('pw2').value;
+  if (p1 !== p2) { say('2つのパスワードが一致しません', 'err'); return; }
+  if (p1.length < 8) { say('パスワードは8文字以上にしてください', 'err'); return; }
+  await post('/api/forgot/reset', {
+    username: $('username').value.trim(), token: resetToken, new_password: p1,
+  });
+  resetToken = '';
+  show('step1');
+  say('パスワードを変更しました。ログイン画面から新しいパスワードでログインしてください。', 'ok');
+}));
+
+['username', 'answer', 'pw2'].forEach(id => {
+  $(id).addEventListener('keydown', e => {
+    if (e.key !== 'Enter') return;
+    const btn = { username: 'btn1', answer: 'btn2', pw2: 'btn3' }[id];
+    $(btn).click();
+  });
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<style>
+  body { width: 300px; font-family: -apple-system, BlinkMacSystemFont, sans-serif; padding: 12px; font-size: 13px; color:#333; }
+  h3 { margin: 0 0 8px; font-size: 14px; }
+  label { display:block; font-size:11px; color:#666; margin-top:8px; }
+  input, textarea { width:100%; box-sizing:border-box; padding:6px 8px; font-size:12px; border:1px solid #ccc; border-radius:6px; margin-top:2px; font-family:inherit; }
+  textarea { resize:vertical; }
+  .row { display:flex; gap:6px; margin-top:8px; }
+  button { flex:1; padding:8px; font-size:12px; border:none; border-radius:6px; cursor:pointer; }
+  .btn-discover { background:#1a1a1a; color:#fff; }
+  .btn-profile { background:#4a90d9; color:#fff; }
+  .btn-stop { background:#999; color:#fff; }
+  .btn-save { background:#333; color:#fff; width:100%; margin-top:6px; }
+  .status { margin-top:10px; padding:8px; background:#f5f5f5; border-radius:6px; font-size:12px; line-height:1.6; }
+  .log { margin-top:8px; max-height:120px; overflow-y:auto; font-size:11px; color:#555; }
+  .log div { padding:2px 0; border-bottom:1px solid #eee; }
+  .paused-actions { display:flex; gap:6px; margin-top:6px; }
+  .completed-banner { margin-top:8px; padding:10px; background:#e8f5e9; color:#2e6b34; border-radius:6px; font-size:12px; line-height:1.6; font-weight:600; }
+  .hint { font-size:10px; color:#999; margin-top:4px; line-height:1.5; }
+  .warn { font-size:10px; color:#a15c00; margin-top:4px; line-height:1.5; background:#fff6e5; padding:6px; border-radius:6px; }
+  hr { border:none; border-top:1px solid #eee; margin:12px 0; }
+  .header-row { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
+  .header-row h3 { margin:0; }
+  .settings-gear {
+    flex:none; width:28px; height:28px; padding:0; font-size:15px; line-height:1;
+    background:#f0f0f0; color:#555; border-radius:6px;
+  }
+  .settings-panel { background:#faf9f7; border:1px solid #eee; border-radius:8px; padding:10px; margin-bottom:10px; }
+</style>
+</head>
+<body>
+<div class="header-row">
+  <h3>🧵 Threadsバズ投稿収集</h3>
+  <button type="button" class="settings-gear" id="settingsToggle" title="設定">⚙️</button>
+</div>
+
+<div class="settings-panel" id="settingsPanel" style="display:none;">
+  <div class="row">
+    <button class="btn-stop" id="resetProcessedBtn">🔄 処理済みリストをリセット</button>
+  </div>
+  <div class="hint">アーカイブ側を一括削除して1から集め直す時など、「もう処理済み」として飛ばされてしまうのを防ぐために使います。</div>
+  <label style="margin-top:12px;"><input type="checkbox" id="debugMode" style="width:auto;margin-right:6px;">🔬 デバッグモード（実機での数値検出の調整用）</label>
+  <div class="hint">ONにしてThreadsの投稿ページを開き、DevToolsのコンソール（F12→Console）を見ると、いいね・返信・表示回数・本文が実際に取れているか、取れない場合はどんな aria-label があるかを出力します。調整が終わったらOFFに戻してください。</div>
+</div>
+
+<label>アーカイブURL</label>
+<input id="archiveUrl" placeholder="https://...">
+<label>アクセストークン</label>
+<p class="hint" style="font-size:11px;color:#888;margin:2px 0 4px">ツールの「初期設定・拡張機能」からダウンロードした場合は設定済みです</p>
+<input id="ingestKey" type="password" placeholder="共有キー">
+<button class="btn-save" id="saveBtn">💾 設定を保存</button>
+
+<div class="warn">ℹ️ 判定は「いいね＋リプライ×3」で行います。表示回数（インプレッション）は他人の投稿ではThreads上に表示されず取得できないため、リプライを重く見て“リーチが伸びた投稿”を優先します（インプレッションの約半分はリプライ由来）。</div>
+
+<hr>
+
+<label>スコアのしきい値（いいね＋リプライ×3。これ以上の投稿だけ発見）</label>
+<input id="scoreThreshold" type="number" step="100" placeholder="500">
+<label>キーワード/ハッシュタグ（1行に1つ・#不要）</label>
+<textarea id="keywords" rows="3" placeholder="AI活用&#10;副業&#10;Threads運用"></textarea>
+<div class="hint">各キーワードでThreadsの検索結果ページ（/search?q=...）を順番に巡回します。</div>
+<div class="row">
+  <button class="btn-discover" id="startDiscover">🔍 バズ投稿発見を開始</button>
+</div>
+
+<div class="row">
+  <button class="btn-profile" id="resumeAlwaysBtn">▶ 再開</button>
+  <button class="btn-stop" id="stopBtn">⏹ 停止</button>
+</div>
+<div class="hint">安全のため1セッションあたり最大25件、1日あたり最大80件までしか自動収集しません。セッション上限に達すると2時間後に自動で次のセッションが始まります。1日の上限に達したら、翌日まで待つか手動で再開してください。</div>
+
+<div class="status" id="status">状態: 読み込み中…</div>
+<div class="completed-banner" id="completedBanner" style="display:none;">
+  設定したキーワードでリサーチした全リストのアーカイブが完了しました。キーワードを変更してください。
+</div>
+<div class="paused-actions" id="pausedActions" style="display:none;">
+  <button class="btn-profile" id="resumeBtn">▶ 再開</button>
+  <button class="btn-stop" id="skipBtn">⏭ スキップ</button>
+</div>
+<div class="log" id="log"></div>
+
+<script src="popup.js"></script>
+</body>
+</html>
