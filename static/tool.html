@@ -289,6 +289,8 @@ body.has-sidebar > .wrap { flex: 1; min-width: 0; }
     <a href="/setup" class="btn small" style="margin-right:8px">初期設定・拡張機能</a><button class="logout-link" id="logout-btn">ログアウト</button>
     <h1>Threads運用ツール</h1>
     <p>データはサーバーに保存され、どの端末からでも同じ状態で操作できます</p>
+    <div id="cron-alert" style="display:none;margin-top:12px;padding:12px 14px;border-radius:8px;
+         background:#fff4f4;border:1px solid #e5a3a3;color:#8a2020;font-size:14px;line-height:1.7"></div>
   </header>
 
   <nav class="tabs-l1">
@@ -1273,9 +1275,38 @@ function renderAccountEmptyState() {
   }
 }
 
+// 自動投稿（cron）が止まっていないかの見張り。
+// cron側は一過性の失敗では終了コード0を返すので、Railwayのクラッシュ通知は出ない。
+// 「静かに止まっている」ことに気づける唯一の場所がここ。
+async function checkCronAlive() {
+  const box = document.getElementById('cron-alert');
+  if (!box) return;
+  try {
+    const res = await fetch('/api/cron/status');
+    if (!res.ok) return;
+    const s = await res.json();
+    if (s.never) {
+      box.innerHTML = '<b>自動投稿がまだ一度も動いていません。</b><br>'
+        + 'デプロイ直後であれば数分で動き出します。10分たっても消えない場合は、'
+        + 'Railwayの cron サービスのログを確認してください。';
+      box.style.display = 'block';
+    } else if (s.stale) {
+      box.innerHTML = `<b>自動投稿が ${s.minutes_ago} 分前から動いていません。</b><br>`
+        + '予約した投稿が流れない状態です。Railwayの cron サービスのログを確認してください。';
+      box.style.display = 'block';
+    } else {
+      box.style.display = 'none';
+    }
+  } catch (e) {
+    // 見張り自体の失敗で画面を壊さない
+  }
+}
+
 async function init() {
   await loadAccounts();
   await reloadAll();
+  checkCronAlive();
+  setInterval(checkCronAlive, 5 * 60 * 1000);
 }
 init().catch(e => {
   console.error(e);

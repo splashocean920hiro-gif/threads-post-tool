@@ -74,6 +74,7 @@ CRON_MAX_PER_RUN = 3          # 1回の実行で処理する最大件数
 CRON_DEADLINE_SEC = 120       # これを超えたら新規の確保をやめて返す
 CRON_CATCHUP_HOURS = 6        # これより古い未着手の予約は投稿せず failed にする
 CRON_STALE_MINUTES = 15       # posting のまま放置された行を回収するまでの時間
+CRON_ALERT_MINUTES = 20       # これ以上cronの成功が無いと画面に警告を出す（5分間隔なので4回連続失敗）
 INSIGHTS_REFRESH_DAYS = 7     # 投稿後この日数はインプレッションを更新し続ける
 # 投稿文生成（Gemini呼び出し）はブラウザ側(static/tool.html)で行うため、サーバー側にモデル定義は無い
 
@@ -244,6 +245,13 @@ def _init_db():
     ''')
     conn.execute('CREATE INDEX IF NOT EXISTS idx_threads_accounts_username '
                  'ON threads_accounts(username)')
+    # ユーザーに紐づかない、環境全体の状態。今は cron の生存記録だけが入る。
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS system_state (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        )
+    ''')
     # account_id の後付け。既存データの割り当ては migrate_accounts.py（ワンショット）で行うが、
     # 列とテーブルの作成はここでやらないと新規環境で永久に作られず全APIが500になる。
     for _t in ('schedule_posts', 'drafts', 'manual_references', 'posts'):
@@ -1922,8 +1930,50 @@ def cron_run_due():
     except Exception:
         stats['insights_updated'] = 0
 
+    # 4) 生存記録。cron_tick.py は一過性の失敗で終了コード0を返すため、
+    #    Railway側では「動いていない」ことが見えない。ここに時刻を残し、
+    #    画面側（GET /api/cron/status）で滞留を知らせる。
+    try:
+        conn.execute(
+            'INSERT INTO system_state (key, value) VALUES (?, ?) '
+            'ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+            ('last_cron_ok', datetime.datetime.utcnow().isoformat()),
+        )
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+
     conn.close()
     return jsonify(stats)
+
+
+@app.route('/api/cron/status')
+@api_login_required
+def cron_status():
+    """自動投稿が動いているかを画面に出すための情報。
+
+    cron が一過性の失敗で終了コード0を返す設計にしたので、
+    「静かに止まっている」ことに気づく手段がここだけになる。"""
+    conn = _get_db()
+    try:
+        row = conn.execute("SELECT value FROM system_state WHERE key = 'last_cron_ok'").fetchone()
+    except sqlite3.OperationalError:
+        row = None
+    conn.close()
+    if not row or not row['value']:
+        return jsonify({'last_ok': None, 'minutes_ago': None, 'stale': False, 'never': True})
+    try:
+        last = datetime.datetime.fromisoformat(row['value'])
+    except ValueError:
+        return jsonify({'last_ok': None, 'minutes_ago': None, 'stale': False, 'never': True})
+    minutes = int((datetime.datetime.utcnow() - last).total_seconds() // 60)
+    return jsonify({
+        'last_ok': row['value'],
+        'minutes_ago': minutes,
+        # cronは5分間隔。20分開いたら4回連続で落ちている
+        'stale': minutes >= CRON_ALERT_MINUTES,
+        'never': False,
+    })
 
 
 # ---------------------------------------------------------------------------
