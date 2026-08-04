@@ -10,7 +10,6 @@ import sys
 import threading
 import unicodedata
 import secrets
-import random
 import datetime
 from functools import wraps
 
@@ -1429,11 +1428,18 @@ def schedule_posts():
     created_ids = []
     for it in items:
         pid = secrets.token_hex(8)
+        # PATCH 側と同じ制限を作成側にも掛ける。ここが開いていると
+        # 「投稿済み＋偽のインプレッション」を作成時に1リクエストで作れてしまい、
+        # PATCH だけ塞いでも意味が無い。posting を作れると自分の行を
+        # 編集も削除もできない状態にロックできてしまう点も同時に塞ぐ。
+        st = it.get('status', 'draft')
+        if st not in ('draft', 'scheduled'):
+            st = 'draft'
         conn.execute(
             '''INSERT INTO schedule_posts (id,username,account_id,date,time,main,reply1,reply2,status,impressions,error,created_at,updated_at)
                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)''',
             (pid, user, acc_id, it.get('date', ''), it.get('time', ''), it.get('main', ''), it.get('reply1', ''),
-             it.get('reply2', ''), it.get('status', 'draft'), it.get('impressions'), None, now, now),
+             it.get('reply2', ''), st, None, None, now, now),
         )
         created_ids.append(pid)
     conn.commit()
@@ -1467,11 +1473,14 @@ def schedule_post_detail(pid):
 
     payload = request.get_json(silent=True) or {}
     # posting はサーバ内部でのみ設定する状態。クライアントからは指定させない。
-    if 'status' in payload and payload.get('status') not in ('draft', 'scheduled'):
+    if 'status' in payload and payload.get('status') not in ('draft', 'scheduled', 'posted'):
         conn.close()
-        return jsonify({'error': 'status は draft か scheduled のみ指定できます'}), 400
+        return jsonify({'error': 'status は draft / scheduled / posted のみ指定できます'}), 400
     fields, values = [], []
-    for col in ('date', 'time', 'main', 'reply1', 'reply2', 'status', 'impressions', 'error'):
+    # impressions と error はサーバが管理する列。クライアントから書けると
+    # 「投稿済み＋偽のインプレッション」を1リクエストで作れてしまい、
+    # デモ動作を廃止した意味が無くなる。
+    for col in ('date', 'time', 'main', 'reply1', 'reply2', 'status'):
         if col in payload:
             fields.append(f'{col} = ?')
             values.append(payload[col])
@@ -1683,7 +1692,7 @@ def execute_schedule_post(pid):
 
     # 二重投稿の防止: 'posting' へアトミックに確保できた場合だけ処理する。
     # ボタン連打・別タブ・API直叩き・cronとの競合を、すべてここで止める。
-    row = _claim_post(conn, pid, user, ('scheduled', 'draft', 'failed'))
+    row = _claim_post(conn, pid, user, ('scheduled', 'draft', 'failed', 'ready'))
     if row is None:
         conn.close()
         return jsonify({'error': 'この投稿は現在処理中です'}), 409
@@ -1692,18 +1701,10 @@ def execute_schedule_post(pid):
     user_id, token = _account_credentials(conn, row)
 
     if not user_id or not token:
-        # Threads APIの認証情報が未設定 → デモ動作にフォールバック（85%成功）。
-        # 実投稿と区別できるよう error に [デモ] 印を残す（画面にも表示される）。
-        if random.random() < 0.85:
-            conn.execute(
-                'UPDATE schedule_posts SET impressions = ? WHERE id = ? AND username = ?',
-                (random.randint(2000, 24000), pid, user),
-            )
-            _finalize_post(conn, pid, user, state, 'posted',
-                           '[デモ] Threads API未設定のため、実際には投稿していません')
-        else:
-            _finalize_post(conn, pid, user, state, 'failed',
-                           '[デモ] ランダム失敗シミュレート（Threads API未設定のため実投稿はしていません）')
+        # Threads APIが未設定のときに「投稿した風」の演出をすると、
+        # 投稿していないのに投稿済みと表示されて事故になる。
+        # 代わりに「手動で投稿する状態」にして、画面からコピーできるようにする。
+        _finalize_post(conn, pid, user, state, 'ready', None)
         row = conn.execute(
             'SELECT * FROM schedule_posts WHERE id = ? AND username = ?', (pid, user)
         ).fetchone()
@@ -1837,7 +1838,7 @@ def cron_run_due():
     stale_before = (datetime.datetime.utcnow()
                     - datetime.timedelta(minutes=CRON_STALE_MINUTES)).isoformat()
 
-    stats = {'claimed': 0, 'posted': 0, 'failed': 0,
+    stats = {'claimed': 0, 'posted': 0, 'failed': 0, 'ready': 0,
              'skipped_old': 0, 'skipped_invalid': 0, 'recovered': 0, 'deadline_hit': False}
     conn = _get_db()
 
@@ -1863,10 +1864,10 @@ def cron_run_due():
             continue
         uid, tok = _account_credentials(conn, r)
         if not uid or not tok:
-            _finalize_post(conn, r['id'], r['username'], state, 'failed',
-                           'この投稿の送信先アカウントに認証情報がありません。'
-                           'アカウント設定でThreadsのUser IDとアクセストークンを登録してください。')
-            stats['failed'] += 1
+            # 認証情報が無いのは設定漏れではなく「まだ自動投稿にしていない」状態。
+            # 失敗扱いにせず、手動で投稿できる状態にする。
+            _finalize_post(conn, r['id'], r['username'], state, 'ready', None)
+            stats['ready'] += 1
             continue
         # 中断行の再取得もアトミックに行う。条件を付けずに更新すると、
         # 2つのcron実行が同じ行を同時に拾って二重投稿になる。
@@ -1906,13 +1907,12 @@ def cron_run_due():
             continue
         stats['claimed'] += 1
         if not uid or not tok:
-            # cron経路ではデモ動作を絶対に通さない。
-            # 投稿していないのに「投稿済み」と記録されるのを防ぐため。
+            # Threads未連携は「失敗」ではなく「まだ自動投稿にしていない」状態。
+            # 投稿していないのに投稿済みと記録する演出は絶対にしない代わりに、
+            # 手動でコピーして投稿できる状態にする。
             st = json.loads(claimed['thread_state']) if claimed['thread_state'] else {}
-            _finalize_post(conn, r['id'], user, st, 'failed',
-                           'Threads APIの認証情報が未設定です。'
-                           '設定ページでユーザーIDとアクセストークンを登録してください。')
-            stats['failed'] += 1
+            _finalize_post(conn, r['id'], user, st, 'ready', None)
+            stats['ready'] += 1
             continue
         stats[_run_one(conn, claimed, user, uid, tok)] += 1
 

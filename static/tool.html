@@ -170,6 +170,7 @@ input[type=time]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
 .badge-scheduled { background: var(--accent-th); }
 .badge-posted { background: var(--good); }
 .badge-posting { background: #d97706; }
+.badge-ready { background: #2563eb; }
 .badge-failed { background: var(--critical); }
 
 .set-card {
@@ -181,6 +182,7 @@ input[type=time]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
 .set-card:has(.badge-scheduled) { border-left-color: var(--accent-th); }
 .set-card:has(.badge-posted) { border-left-color: var(--good); }
 .set-card:has(.badge-posting) { border-left-color: #d97706; }
+.set-card:has(.badge-ready) { border-left-color: #2563eb; }
 .set-card:has(.badge-failed) { border-left-color: var(--critical); }
 .set-card .set-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 8px; }
 .set-card .set-head .when { font-size: 0.78rem; font-weight: bold; color: var(--muted); }
@@ -309,7 +311,7 @@ body.has-sidebar > .wrap { flex: 1; min-width: 0; }
   <section id="tab-calendar" class="tab-content">
     <div class="panel">
       <div class="panel-title">投稿カレンダー</div>
-      <p class="note">日付・時間はそれぞれ編集できます。本日以前の日付なら「投稿を実行」、未来の日付なら「投稿を予約」でそのまま操作できます。Threads APIが未設定の間は投稿実行がデモ動作（ランダムで成功/失敗）になります。</p>
+      <p class="note">日付・時間はそれぞれ編集できます。本日以前の日付なら「投稿を実行」、未来の日付なら「投稿を予約」でそのまま操作できます。Threads APIが未設定の間は、予約時刻になると「時間です（手動で投稿）」に変わり、本文をコピーして自分で投稿する形になります。</p>
       <div id="review-list"></div>
     </div>
   </section>
@@ -388,7 +390,7 @@ body.has-sidebar > .wrap { flex: 1; min-width: 0; }
 
       <div class="api-card">
         <h3><span class="status-dot" id="dot-threads"></span> Threads API（Meta）</h3>
-        <div class="status-line">graph.threads.net ／ 未設定の間は投稿実行がデモ動作になります</div>
+        <div class="status-line">graph.threads.net ／ 未設定の間は、予約時刻に「手動で投稿」の状態になります</div>
         <div class="row2">
           <div class="fg"><label>アカウントの表示名</label><input id="acct-label" placeholder="例: 副業アカ"></div>
           <div class="fg" style="flex-basis:100%"><label>担当キーワード <span class="sub-hint">（1行に1つ。拡張機能が集めた投稿を、このアカウントの参考投稿として振り分けます）</span></label><textarea id="acct-keywords" rows="3" placeholder="副業&#10;AI 副業&#10;在宅ワーク" style="width:100%"></textarea></div>
@@ -448,8 +450,7 @@ body.has-sidebar > .wrap { flex: 1; min-width: 0; }
     <div class="panel">
       <div class="panel-title">サマリー</div>
       <div class="stat-row" id="stat-row"></div>
-      <p class="note">判定基準：インプレッション <b>1万</b> 超え＝伸びた投稿。数値は Threads Insights API から自動で取得し、投稿後7日間は定期的に更新されます。<br>
-        ※ Threads APIを設定していない場合の「デモ動作」で投稿したものには、動作確認用のランダムな数値が入ります（その投稿には「デモ動作です」と表示されます）。</p>
+      <p class="note">判定基準：インプレッション <b>1万</b> 超え＝伸びた投稿。数値は Threads Insights API から自動で取得し、投稿後7日間は定期的に更新されます。</p>
     </div>
 
     <div class="panel">
@@ -1061,6 +1062,35 @@ async function bulkSchedule(date, btn) {
   alert(ng ? `${ok}件を予約しました。${ng}件は失敗しました。` : `${ok}件を予約しました。指定の時間に自動投稿されます。`);
 }
 
+// Threads未連携のときは、本文をコピーして手で投稿してもらう。
+// 「投稿した風」の演出はしない（投稿していないのに投稿済みと表示されるため）
+async function copyForManual(id, btn) {
+  const p = findPost(id);
+  if (!p) return;
+  const parts = [p.main, p.reply1, p.reply2].filter(Boolean);
+  const text = parts.join('\n\n---（ここでリプライに分けて投稿）---\n\n');
+  try {
+    await navigator.clipboard.writeText(text);
+    const orig = btn.textContent;
+    btn.textContent = '✅ コピーしました';
+    setTimeout(() => { btn.textContent = orig; }, 2000);
+  } catch (e) {
+    prompt('この文章をコピーしてください', text);
+  }
+}
+
+async function markPosted(id, btn) {
+  if (!confirm('この投稿をThreadsに投稿しましたか？\n\n「投稿済み」に変更します。')) return;
+  btn.disabled = true;
+  try {
+    const updated = await api(`/api/schedule-posts/${id}`, {
+      method: 'PATCH', body: JSON.stringify({ status: 'posted' }),
+    });
+    Object.assign(findPost(id), updated);
+  } catch (e) { alert(`変更に失敗しました：${e.message || e}`); }
+  finally { btn.disabled = false; renderCalendarPage(); }
+}
+
 async function executeSet(id, btn) {
   // 連打による二重投稿を防ぐ。サーバ側でも 'posting' 確保で弾いているが、
   // 押しても見た目が変わらないと連打を誘発するのでフロントでも止める。
@@ -1081,7 +1111,8 @@ async function executeSet(id, btn) {
 function isTodayOrPast(dateStr) { return dateStr <= formatDate(new Date()); }
 
 const STATUS_LABEL = {
-  draft: '下書き', scheduled: '予約済み', posting: '投稿中', posted: '投稿済み', failed: '投稿失敗',
+  draft: '下書き', scheduled: '予約済み', posting: '投稿中',
+  ready: '時間です（手動で投稿）', posted: '投稿済み', failed: '投稿失敗',
 };
 
 function renderCalendarPage() {
@@ -1121,10 +1152,12 @@ function renderCalendarPage() {
             ) : ''}
             ${p.status === 'scheduled' && isTodayOrPast(p.date) ? `<button class="btn small good" onclick="executeSet('${p.id}', this)">投稿を実行</button>` : ''}
             ${p.status === 'failed' ? `<button class="btn small good" onclick="executeSet('${p.id}', this)">再実行する</button>` : ''}
+            ${p.status === 'ready' ? `<button class="btn small good" onclick="copyForManual('${p.id}', this)">本文をコピー</button>
+              <button class="btn small" onclick="markPosted('${p.id}', this)">投稿済みにする</button>` : ''}
           </div>
           ${p.status === 'scheduled' && !isTodayOrPast(p.date) ? `<div class="impressions">🗓 ${shortDate(p.date)}（${weekdayLabel(p.date)}） ${p.time} に自動投稿予定<br><span class="note">※ 5分ごとのチェックのため、実行が数分前後することがあります</span></div>` : ''}
           ${p.status === 'posting' ? `<div class="impressions">⏳ 投稿処理中です。完了までしばらくお待ちください</div>` : ''}
-          ${p.status === 'posted' && (p.error || '').startsWith('[デモ]') ? `<div class="impressions">⚠️ これはデモ動作です。実際にはThreadsへ投稿されていません（設定ページでThreads APIを登録してください）</div>` : ''}
+          ${p.status === 'ready' ? `<div class="impressions">📋 投稿の時間になりました。「本文をコピー」でThreadsに貼り付けてください。<br><span class="note">Threads APIを設定すると、この操作なしで自動投稿されるようになります</span></div>` : ''}
           ${p.status === 'failed' ? `<div class="impressions">⚠️ 投稿に失敗しました${p.error ? `：${escapeHtml(p.error)}` : ''}</div>` : ''}
           ${p.status === 'posted' ? `<div class="impressions">📊 インプレッション: ${(p.impressions ?? 0).toLocaleString()}${p.impressions >= 10000 ? '（伸びた投稿🎉）' : ''}</div>` : ''}
         </div>
