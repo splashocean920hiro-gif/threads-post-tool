@@ -1081,6 +1081,17 @@ async function copyForManual(id, btn) {
   }
 }
 
+// 失敗した投稿の再実行。
+// 失敗の原因がThreads側の一時的なエラーだった場合、利用者が先に手で投稿していることがある。
+// そのまま再実行すると同じ内容がもう一度流れるので、押す前に必ず確認する。
+async function retryFailed(id, btn) {
+  if (!confirm('この投稿をもう一度Threadsに投稿します。\n\n'
+    + 'すでにご自分で投稿している場合は、二重投稿になります。\n'
+    + 'その場合は「投稿済みにする」を押してください。\n\n'
+    + '再実行しますか？')) return;
+  await executeSet(id, btn);
+}
+
 async function markPosted(id, btn) {
   if (!confirm('この投稿をThreadsに投稿しましたか？\n\n「投稿済み」に変更します。')) return;
   btn.disabled = true;
@@ -1153,7 +1164,8 @@ function renderCalendarPage() {
                 : `<button class="btn small" onclick="scheduleSet('${p.id}', this)">投稿を予約</button>`
             ) : ''}
             ${p.status === 'scheduled' && isTodayOrPast(p.date) ? `<button class="btn small good" onclick="executeSet('${p.id}', this)">投稿を実行</button>` : ''}
-            ${p.status === 'failed' ? `<button class="btn small good" onclick="executeSet('${p.id}', this)">再実行する</button>` : ''}
+            ${p.status === 'failed' ? `<button class="btn small good" onclick="retryFailed('${p.id}', this)">再実行する</button>
+              <button class="btn small" onclick="markPosted('${p.id}', this)">投稿済みにする</button>` : ''}
             ${p.status === 'ready' ? `<button class="btn small good" onclick="copyForManual('${p.id}', this)">本文をコピー</button>
               <button class="btn small" onclick="markPosted('${p.id}', this)">投稿済みにする</button>` : ''}
           </div>
