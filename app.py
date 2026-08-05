@@ -75,6 +75,19 @@ CRON_DEADLINE_SEC = 120       # これを超えたら新規の確保をやめて
 CRON_CATCHUP_HOURS = 6        # これより古い未着手の予約は投稿せず failed にする
 CRON_STALE_MINUTES = 15       # posting のまま放置された行を回収するまでの時間
 CRON_ALERT_MINUTES = 20       # これ以上cronの成功が無いと画面に警告を出す（5分間隔なので4回連続失敗）
+
+# 投稿を自動収集するChrome拡張機能の機能一式を出すかどうか。
+# 既定はオフ。オフのときは画面にも出さず、関連する口もすべて404にする。
+# 「これは何だろう」と思わせる要素を、使わない人の目に触れさせないための切り替え。
+COLLECTOR_ENABLED = os.environ.get('ENABLE_COLLECTOR', '').strip().lower() not in (
+    '', '0', 'false', 'no', 'off', 'none')
+
+
+def _collector_required():
+    """拡張機能まわりの口。無効なら存在しないものとして404を返す。"""
+    if not COLLECTOR_ENABLED:
+        from flask import abort
+        abort(404)
 INSIGHTS_REFRESH_DAYS = 7     # 投稿後この日数はインプレッションを更新し続ける
 # 投稿文生成（Gemini呼び出し）はブラウザ側(static/tool.html)で行うため、サーバー側にモデル定義は無い
 
@@ -531,7 +544,9 @@ def logout():
 
 @app.route('/api/session')
 def session_status():
-    return jsonify({'authed': bool(current_username()), 'username': current_username()})
+    # collector は画面が拡張機能まわりの表示を出すかどうかの判断に使う。
+    return jsonify({'authed': bool(current_username()), 'username': current_username(),
+                    'collector': COLLECTOR_ENABLED})
 
 
 @app.route('/api/threads/resolve-user-id', methods=['POST', 'OPTIONS'])
@@ -1096,6 +1111,7 @@ def api_threads_account_detail(acc_id):
 @app.route('/api/ingest-token', methods=['POST'])
 @api_login_required
 def api_ingest_token():
+    _collector_required()
     """自分の拡張機能用トークンを返す（未発行ならその場で発行）。
     発行という副作用があるので GET ではなく POST。"""
     conn = _get_db()
@@ -1108,6 +1124,7 @@ def api_ingest_token():
 @app.route('/api/ingest-token/regenerate', methods=['POST'])
 @api_login_required
 def api_ingest_token_regenerate():
+    _collector_required()
     """トークンを作り直す。今入っている拡張機能は動かなくなるので、
     ダウンロードし直してもらう必要がある（画面側で明示している）。"""
     user = current_username()
@@ -1125,6 +1142,7 @@ def api_ingest_token_regenerate():
 def ingest():
     if request.method == 'OPTIONS':
         return '', 204
+    _collector_required()
     owner = _ingest_username()
     if not owner:
         return jsonify({'error': 'unauthorized'}), 401
@@ -2079,18 +2097,21 @@ def _extension_hash():
 @app.route('/setup')
 @page_login_required
 def setup_page():
+    _collector_required()
     return send_from_directory('static', 'setup.html')
 
 
 @app.route('/api/extension-info')
 @api_login_required
 def api_extension_info():
+    _collector_required()
     return jsonify({'hash': _extension_hash(), 'missing': _extension_missing()})
 
 
 @app.route('/download/extension.zip')
 @page_login_required
 def download_extension():
+    _collector_required()
     missing = _extension_missing()
     if missing:
         return jsonify({'error': f'配布ファイルが不足しています: {", ".join(missing)}'}), 500

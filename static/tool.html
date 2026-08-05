@@ -280,13 +280,13 @@ body.has-sidebar > .wrap { flex: 1; min-width: 0; }
   <div class="sec"><span>アカウント</span><button class="addbtn" id="acct-add" title="アカウントを追加">＋</button></div>
   <div id="acct-list"></div>
   <div class="side-foot">
-    集めた参考投稿は、アカウントごとの担当キーワードで自動的に振り分けられます。<br>
-    <a href="/setup">初期設定・拡張機能</a>
+    アカウントごとに、下書き・予約・投稿済み・参考投稿が分かれます。<br>
+    <a href="/setup" class="collector-only" style="display:none">初期設定・拡張機能</a>
   </div>
 </aside>
 <div class="wrap">
   <header>
-    <a href="/setup" class="btn small" style="margin-right:8px">初期設定・拡張機能</a><button class="logout-link" id="logout-btn">ログアウト</button>
+    <a href="/setup" class="btn small collector-only" style="margin-right:8px;display:none">初期設定・拡張機能</a><button class="logout-link" id="logout-btn">ログアウト</button>
     <h1>Threads運用ツール</h1>
     <p>データはサーバーに保存され、どの端末からでも同じ状態で操作できます</p>
     <div id="cron-alert" style="display:none;margin-top:12px;padding:12px 14px;border-radius:8px;
@@ -395,7 +395,7 @@ body.has-sidebar > .wrap { flex: 1; min-width: 0; }
         <div class="status-line">graph.threads.net ／ 未設定の間は、予約時刻に「手動で投稿」の状態になります</div>
         <div class="row2">
           <div class="fg"><label>アカウントの表示名</label><input id="acct-label" placeholder="例: 副業アカ"></div>
-          <div class="fg" style="flex-basis:100%"><label>担当キーワード <span class="sub-hint">（1行に1つ。拡張機能が集めた投稿を、このアカウントの参考投稿として振り分けます）</span></label><textarea id="acct-keywords" rows="3" placeholder="副業&#10;AI 副業&#10;在宅ワーク" style="width:100%"></textarea></div>
+          <div class="fg collector-only" style="flex-basis:100%;display:none"><label>担当キーワード <span class="sub-hint">（1行に1つ。拡張機能が集めた投稿を、このアカウントの参考投稿として振り分けます）</span></label><textarea id="acct-keywords" rows="3" placeholder="副業&#10;AI 副業&#10;在宅ワーク" style="width:100%"></textarea></div>
           <div class="fg"><label>Access Token</label><input id="key-threads-token" type="password" placeholder="アクセストークンを貼り付け"></div>
           <div class="fg"><label>User ID <span class="sub-hint">（トークンから自動取得）</span></label><input id="key-threads-uid" placeholder="トークン入力で自動入力されます" readonly style="background:var(--beige-dark);cursor:not-allowed;"></div>
         </div>
@@ -414,7 +414,7 @@ body.has-sidebar > .wrap { flex: 1; min-width: 0; }
   <section id="tab-reference" class="tab-content" style="display:none;">
     <div class="panel">
       <div class="panel-title">参照投稿を登録</div>
-      <p class="note">Threadsで実際に伸びている投稿を、投稿者は問わず登録してください。<b>必須は「本文」と反応数（いいね・リプライ・インプレッション）だけ</b>で、これが「どんな投稿が伸びるか」をAIに学ばせる主な材料です。リプライ（ツリー）は分かる場合のみ任意で追加してください。buzz-threads-collector拡張機能が収集した投稿は本文＋数値の形で自動反映されます。</p>
+      <p class="note">Threadsで実際に伸びている投稿を、投稿者は問わず登録してください。<b>必須は「本文」と反応数（いいね・リプライ・インプレッション）だけ</b>で、これが「どんな投稿が伸びるか」をAIに学ばせる主な材料です。リプライ（ツリー）は分かる場合のみ任意で追加してください。<span class="collector-only" style="display:none">拡張機能が収集した投稿は、本文＋数値の形で自動的にここへ反映されます。</span></p>
       <div class="fg"><label>本文</label><textarea id="ref-main" placeholder="伸びていた投稿の本文"></textarea></div>
       <div class="fg"><label>リプライ1 <span class="sub-hint">（任意・分かる場合のみ）</span></label><textarea id="ref-reply1" rows="2" placeholder="投稿者自身が続けたリプライ（あれば）"></textarea></div>
       <div class="fg"><label>リプライ2 <span class="sub-hint">（任意・分かる場合のみ）</span></label><textarea id="ref-reply2" rows="2" placeholder="投稿者自身が続けたリプライ（あれば）"></textarea></div>
@@ -564,7 +564,7 @@ async function addAccount() {
     await loadAccounts();
     await switchAccount(a.id);
     if (a.id === activeAccount) await reloadAll();
-    alert('追加しました。「データ関連 → API設定」でThreadsのUser ID・アクセストークン・担当キーワードを登録してください。');
+    alert('追加しました。「データ関連 → API設定」でThreadsのアクセストークンを登録してください。');
   } catch (e) { alert(`追加に失敗しました：${e.message || e}`); }
 }
 
@@ -1345,9 +1345,24 @@ async function checkCronAlive() {
   }
 }
 
+// 拡張機能を使う環境でだけ、関連する導線を表示する。
+// 既定は非表示。使わない人に「これは何だろう」と思わせないため。
+async function applyCollectorVisibility() {
+  try {
+    const res = await fetch('/api/session');
+    if (!res.ok) return;
+    const s = await res.json();
+    if (!s.collector) return;
+    document.querySelectorAll('.collector-only').forEach(el => { el.style.display = ''; });
+  } catch (e) {
+    // 判定できないときは非表示のまま（出さない側に倒す）
+  }
+}
+
 async function init() {
   await loadAccounts();
   await reloadAll();
+  applyCollectorVisibility();
   checkCronAlive();
   setInterval(checkCronAlive, 5 * 60 * 1000);
 }
