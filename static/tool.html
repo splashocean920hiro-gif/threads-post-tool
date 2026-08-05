@@ -1081,6 +1081,35 @@ async function copyForManual(id, btn) {
   }
 }
 
+// 予約・下書きの削除。投稿済み（posted）には削除ボタンを出していない。
+// 分析の履歴が欠けるため。投稿処理中（posting）もサーバ側が409で拒否する。
+// 本文は onclick に埋め込まず、ここで引き直す（引用符の混入を避けるため）。
+async function deletePost(id, btn) {
+  const p = findPost(id);
+  const raw = (p && p.main) ? p.main.replace(/\s+/g, ' ') : '';
+  const head = raw.slice(0, 40) + (raw.length > 40 ? '…' : '');
+  const when = p ? `${p.date} ${p.time}` : '';
+  // failed は「本文だけ投稿されて、リプライで失敗した」状態のことがある。
+  // その行を消すと、Threadsに投稿が残ったまま手元の記録だけ消える。
+  const partial = (p && p.status === 'failed')
+    ? '\n\n⚠️ 失敗した投稿は、本文だけ先にThreadsへ公開されている場合があります。\n'
+      + '削除する前に、Threadsで実際に投稿されていないか確認してください。'
+    : '';
+  if (!confirm(`この投稿を削除します。元に戻せません。\n\n${when}\n${head}${partial}\n\n削除しますか？`)) return;
+  btn.disabled = true;
+  try {
+    await api(`/api/schedule-posts/${id}`, { method: 'DELETE' });
+    state.posts = state.posts.filter(x => x.id !== id);
+  } catch (e) {
+    const msg = (e && e.message) || String(e);
+    alert(msg.includes('409')
+      ? 'この投稿は現在処理中です。しばらく待ってから画面を更新してください。'
+      : `削除に失敗しました：${msg}`);
+    btn.disabled = false;
+  }
+  renderCalendarPage();
+}
+
 // 失敗した投稿の再実行。
 // 失敗の原因がThreads側の一時的なエラーだった場合、利用者が先に手で投稿していることがある。
 // そのまま再実行すると同じ内容がもう一度流れるので、押す前に必ず確認する。
@@ -1168,6 +1197,8 @@ function renderCalendarPage() {
               <button class="btn small" onclick="markPosted('${p.id}', this)">投稿済みにする</button>` : ''}
             ${p.status === 'ready' ? `<button class="btn small good" onclick="copyForManual('${p.id}', this)">本文をコピー</button>
               <button class="btn small" onclick="markPosted('${p.id}', this)">投稿済みにする</button>` : ''}
+            ${['draft', 'scheduled', 'failed', 'ready'].includes(p.status)
+              ? `<button class="btn small critical" onclick="deletePost('${p.id}', this)">削除</button>` : ''}
           </div>
           ${p.status === 'scheduled' && !isTodayOrPast(p.date) ? `<div class="impressions">🗓 ${shortDate(p.date)}（${weekdayLabel(p.date)}） ${p.time} に自動投稿予定<br><span class="note">※ 5分ごとのチェックのため、実行が数分前後することがあります</span></div>` : ''}
           ${p.status === 'posting' ? `<div class="impressions">⏳ 投稿処理中です。完了までしばらくお待ちください</div>` : ''}
