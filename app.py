@@ -313,6 +313,14 @@ def _init_db():
     # schedule_postsに投稿進捗(本文ID・リプライID)を保存するカラムを後付け（再実行時の重複防止）
     if not _column_exists(conn, 'schedule_posts', 'thread_state'):
         conn.execute('ALTER TABLE schedule_posts ADD COLUMN thread_state TEXT')
+    # 収集した投稿の投稿者フォロワー数。gunicorn の worker が2本あり _init_db が
+    # 同時に走るため、存在確認だけだと ALTER が競合して duplicate column name で落ち、
+    # restartPolicy=ON_FAILURE と合わさって再起動ループになる。例外も握ってから再確認する。
+    try:
+        if not _column_exists(conn, 'posts', 'author_followers'):
+            conn.execute('ALTER TABLE posts ADD COLUMN author_followers INTEGER')
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
     conn.close()
 
@@ -1138,6 +1146,25 @@ def api_ingest_token_regenerate():
         conn.close()
 
 
+@app.route('/ingest/accounts')
+def ingest_accounts():
+    """拡張機能が「どのアカウント向けに集めるか」を選ぶための一覧。
+
+    拡張機能はセッションCookieを持たないので /api/threads-accounts（ログイン必須）は
+    呼べない。Ingestトークンで認証し、id と表示名だけを返す。
+    アクセストークン等の秘密は返さない。"""
+    _collector_required()
+    owner = _ingest_username()
+    if not owner:
+        return jsonify({'error': 'unauthorized'}), 401
+    conn = _get_db()
+    rows = conn.execute(
+        'SELECT id, label FROM threads_accounts WHERE username = ? ORDER BY sort_order, created_at',
+        (owner,)).fetchall()
+    conn.close()
+    return jsonify({'accounts': [{'id': r['id'], 'label': r['label']} for r in rows]})
+
+
 @app.route('/ingest', methods=['POST', 'OPTIONS'])
 def ingest():
     if request.method == 'OPTIONS':
@@ -1162,7 +1189,15 @@ def ingest():
     # ここから入った値がそのまま画面に描画されると、トークンを持っただけの相手が
     # オーナーのセッションでJSを実行できてしまう（=/api/settings のAPIキー窃取）。
     # 出力側でエスケープしたうえで、入口でも形式と長さを縛る。
+    # ハンドル名。想定外の文字が来ても投稿ごと落とさず、空にして通す（posted_at と同じ扱い）。
     author = (payload.get('author') or '').strip()[:100]
+    if author.startswith('@'):
+        author = author[1:]
+    if author and not re.match(r'^[A-Za-z0-9_.]{1,30}$', author):
+        author = ''
+    author_followers = payload.get('author_followers')
+    author_followers = (author_followers
+                        if isinstance(author_followers, int) and author_followers >= 0 else None)
     text = (payload.get('text') or '').strip()[:5000]
     posted_at = (payload.get('posted_at') or '').strip()[:32]
     if posted_at and not re.match(r'^[0-9A-Za-z:\-\.\+/ ]{1,32}$', posted_at):
@@ -1190,12 +1225,28 @@ def ingest():
     # 担当キーワードからどのアカウントの素材か振り分ける。
     # 既に account_id が入っている行は上書きしない（手動で割り当て直した分が
     # 次の収集で勝手に別アカウントへ移動してしまうため）。
-    acc_for_post = _account_id_for_keyword(conn, owner, keyword)
+    # 送信先アカウントの決定。
+    # 明示指定があるときは所有を突合し、見つからなければ400で弾く。
+    # _resolve_account は「未指定なら先頭を既定にする」仕様なので、ここでは使わない
+    # （黙って先頭アカウントに割り当てられ、キーワード振り分けが壊れるため）。
+    req_acc = (payload.get('account_id') or '').strip()
+    if req_acc:
+        owned = conn.execute(
+            'SELECT id FROM threads_accounts WHERE id = ? AND username = ?', (req_acc, owner)
+        ).fetchone()
+        if not owned:
+            conn.close()
+            return jsonify({'error': 'unknown account_id'}), 400
+        acc_for_post = req_acc
+    else:
+        # 旧拡張機能との後方互換。指定が無いときだけ担当キーワードで振り分ける。
+        acc_for_post = _account_id_for_keyword(conn, owner, keyword)
     if row:
         conn.execute(
             '''UPDATE posts SET
                  url = ?,
                  author = COALESCE(NULLIF(?, ''), author),
+                 author_followers = COALESCE(?, author_followers),
                  text = COALESCE(NULLIF(?, ''), text),
                  posted_at = COALESCE(NULLIF(?, ''), posted_at),
                  keyword = COALESCE(NULLIF(?, ''), keyword),
@@ -1206,16 +1257,16 @@ def ingest():
                  account_id = COALESCE(account_id, ?),
                  last_seen_at = ?
                WHERE post_key = ? AND username = ?''',
-            (url, author, text, posted_at, keyword, likes, reply_count, impressions, replies_json,
-             acc_for_post, now, key, owner),
+            (url, author, author_followers, text, posted_at, keyword, likes, reply_count,
+             impressions, replies_json, acc_for_post, now, key, owner),
         )
     else:
         conn.execute(
             '''INSERT INTO posts
-                 (post_key, username, account_id, url, author, text, posted_at, likes, reply_count, impressions, replies_json, keyword, first_seen_at, last_seen_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-            (key, owner, acc_for_post, url, author, text, posted_at, likes, reply_count,
-             impressions, replies_json, keyword, now, now),
+                 (post_key, username, account_id, url, author, author_followers, text, posted_at, likes, reply_count, impressions, replies_json, keyword, first_seen_at, last_seen_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+            (key, owner, acc_for_post, url, author, author_followers, text, posted_at, likes,
+             reply_count, impressions, replies_json, keyword, now, now),
         )
     conn.commit()
     conn.close()
@@ -2073,7 +2124,8 @@ def draft_detail(did):
 # ---------------------------------------------------------------------------
 
 EXTENSION_DIR = os.path.join(os.path.dirname(__file__), 'extension_src')
-EXTENSION_FILES = ('manifest.json', 'background.js', 'content.js', 'popup.html', 'popup.js', 'icon.png')
+EXTENSION_FILES = ('manifest.json', 'background.js', 'content.js', 'popup.html', 'popup.js',
+                   'report.html', 'report.js', 'icon.png')
 EXTENSION_ZIP_ROOT = 'buzz-threads-collector'
 
 

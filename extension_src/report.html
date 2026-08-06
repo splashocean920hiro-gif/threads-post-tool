@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>Threads リサーチ</title>
+<style>
+:root{--bg:#faf8f5;--card:#fff;--line:#e6e0d8;--ink:#2b2b2b;--muted:#8a8178;--accent:#5b4b8a;--good:#2e7d5b;--warn:#b3541e}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,'Hiragino Sans',sans-serif;line-height:1.7}
+.wrap{max-width:960px;margin:0 auto;padding:24px 20px 80px}
+h1{font-size:1.3rem;margin:0 0 4px}
+.sub{color:var(--muted);font-size:.85rem;margin-bottom:20px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin-bottom:16px}
+.card h2{font-size:1rem;margin:0 0 10px}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+input,select{padding:8px 10px;border:1px solid var(--line);border-radius:6px;font-size:.9rem;font-family:inherit}
+input[type=text]{flex:1;min-width:260px}
+.btn{padding:8px 16px;border:0;border-radius:6px;background:var(--accent);color:#fff;font-size:.9rem;cursor:pointer;font-family:inherit}
+.btn.sub{background:#eee;color:#444}
+.btn.stop{background:var(--warn)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+table{width:100%;border-collapse:collapse;font-size:.87rem}
+th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line)}
+th{color:var(--muted);font-weight:600;font-size:.78rem}
+td.num{text-align:right;font-variant-numeric:tabular-nums}
+.rate{font-weight:700;color:var(--accent)}
+.empty{color:var(--muted);padding:18px 0;text-align:center;font-size:.88rem}
+#status{font-size:.85rem;padding:10px 12px;border-radius:6px;background:#f2efe9;margin-bottom:14px}
+#status.run{background:#e7f3ec;color:var(--good)}
+#status.stop{background:#fbeee6;color:var(--warn)}
+.pill{display:inline-block;background:#f0ece4;border-radius:99px;padding:1px 9px;font-size:.75rem;color:var(--muted);margin-left:6px}
+.note{color:var(--muted);font-size:.8rem;margin-top:8px}
+.logline{font-family:ui-monospace,monospace;font-size:.76rem;color:var(--muted);white-space:pre-wrap}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Threads リサーチ</h1>
+  <div class="sub">この画面を開いているあいだだけ動きます。閉じると停止します。</div>
+
+  <div id="status">待機中</div>
+
+  <div class="card">
+    <h2>① アカウントを見つける</h2>
+    <div class="row">
+      <input type="text" id="kw" placeholder="キーワード（例: AI 副業）">
+      <button class="btn" id="startDiscover">調べる</button>
+      <button class="btn stop" id="stop1" style="display:none">停止</button>
+    </div>
+    <div class="note">検索結果を見て回り、アカウントごとの反応を集計します。<b>投稿の保存はしません。</b></div>
+  </div>
+
+  <div class="card">
+    <h2>② そのアカウントの投稿を集める</h2>
+    <div class="row">
+      <input type="text" id="profileUrl" placeholder="https://www.threads.com/@ハンドル">
+      <select id="accountSel"><option value="">保存先を選択…</option></select>
+      <button class="btn" id="startArchive">集める</button>
+      <button class="btn stop" id="stop2" style="display:none">停止</button>
+    </div>
+    <div class="note">表示回数の高い投稿だけを保存します。1アカウントで5〜10分かかります。</div>
+  </div>
+
+  <div class="card">
+    <h2>見つけたアカウント <span class="pill" id="acctCount">0件</span></h2>
+    <div id="reportArea"><div class="empty">まだデータがありません。①から始めてください。</div></div>
+    <div class="row" style="margin-top:12px">
+      <button class="btn sub" id="clearReport">レポートを消す</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>動作ログ</h2>
+    <div id="log" class="logline">—</div>
+  </div>
+</div>
+<script src="report.js"></script>
+</body>
+</html>

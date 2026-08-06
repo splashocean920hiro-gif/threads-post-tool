@@ -6,8 +6,7 @@
   "permissions": [
     "storage",
     "tabs",
-    "alarms",
-    "notifications"
+    "alarms"
   ],
   "host_permissions": [
     "https://www.threads.com/*",
@@ -30,6 +29,6 @@
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Threadsバズ投稿収集"
+    "default_title": "Threads リサーチ"
   }
 }

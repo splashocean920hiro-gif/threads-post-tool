@@ -25,6 +25,17 @@ function getPostKeyFromHref(href) {
   return m ? m[1] : null;
 }
 
+// Threads以外のURLを弾く。プロフィール上の投稿本文に外部リンクがあると、
+// それを候補に入れてタブごと外部サイトへ遷移させられてしまう。
+const THREADS_ORIGINS = ['https://www.threads.com', 'https://www.threads.net'];
+function isThreadsUrl(u) {
+  try { return THREADS_ORIGINS.includes(new URL(u).origin); } catch (e) { return false; }
+}
+// ハンドル名はサーバ側 /ingest と同じ形式に縛る。
+// レポート画面が innerHTML で描画するので、ここを通さないと属性の脱出を許す。
+const HANDLE_RE = /^[A-Za-z0-9_.]{1,30}$/;
+function safeHandle(h) { return (h && HANDLE_RE.test(h)) ? h : null; }
+
 function absoluteThreadsUrl(href) {
   if (!href) return '';
   if (href.startsWith('http')) return href;
@@ -136,9 +147,13 @@ function extractStatsFromContainer(container) {
   return { likes, replies, impressions };
 }
 
-// 表示回数(impressions)は他人の投稿では非公開＝取得できないことが実機で判明（2026-07-30）。
-// 代わりに「いいね＋リプライ×3」で判定する。Threadsのインプレッションの約50%がリプライ由来のため、
-// リプライを重く見ることで「リーチ（表示回数）が伸びた投稿」に近い基準になる。
+// 【訂正 2026-08-06】以前ここに「表示回数は他人の投稿では取得できない」と書いてあったが誤り。
+// 投稿の詳細ページを開けば他人の投稿でも取得できる（本番171件中170件で取得済み・実測）。
+// 取得できないのは検索結果・フィードの一覧カードだけで、その場合は投稿ページを開く必要がある。
+// この誤ったコメントを根拠に設計を誤ったことがあるので、消さずに訂正として残す。
+//
+// REPLY_WEIGHT は一覧カードでの暫定スコア用。詳細ページを開けば表示回数が取れるので、
+// 本来の指標は「いいね率＝いいね÷表示回数」。
 const REPLY_WEIGHT = 3;
 function scoreOf(stats) {
   return (stats.likes || 0) + (stats.replies || 0) * REPLY_WEIGHT;
@@ -349,122 +364,223 @@ function setupSkipButton(box, host, seconds) {
   btn.onclick = finish;
 }
 
-// ---------- 検索結果ページ: 投稿カードを発見 ----------
-function scanSearchResults(threshold) {
-  const links = Array.from(document.querySelectorAll('a[href*="/post/"]'));
-  const seen = new Set();
-  const results = [];
-  for (const a of links) {
-    const postKey = getPostKeyFromHref(a.getAttribute('href'));
-    if (!postKey || seen.has(postKey)) continue;
-    seen.add(postKey);
 
-    const container = a.closest('[role="article"]') || a.closest('article')
-      || a.closest('[data-pressable-container]')
-      || a.parentElement?.parentElement?.parentElement || a.parentElement;
-    if (!container) continue;
+// ===========================================================================
+// 2モード構成のコンテンツ側。
+//   discover : 検索結果をゆっくりスクロールし、アカウント単位で いいね/リプライ を集計
+//   profile  : アカウントページから投稿リンクとフォロワー数を集める
+//   post     : 投稿の詳細ページから本文・数値（表示回数を含む）を取る
+//
+// 待機はすべてここで行う。background の chrome.alarms は MV3 で30秒未満が
+// 丸められるため、人間的な揺らぎ（4〜11秒）を作れない。
+//
+// 各ステップの前に、コントローラ（report.html）のハートビートを確認する。
+// 画面を閉じられていたら、そこで止まる。
+// ===========================================================================
 
-    const stats = extractStatsFromContainer(container);
-    const score = scoreOf(stats);
-    if (DEBUG) dlog(`検索結果カード ${postKey}: score=${score}`, stats);
-    if (score < threshold) continue;
+// 裏に回ったタブは Chrome が setInterval を1分間隔まで絞るため、3秒だと誤停止する。
+// タブを閉じたときは report 側が pagehide で 0 を書くので、この値を延ばしても即座に止まる。
+const HEARTBEAT_MAX_AGE_MS = 90000;
 
-    results.push({
-      postKey,
-      url: absoluteThreadsUrl(a.getAttribute('href')),
-      likes: stats.likes, replies: stats.replies, impressions: stats.impressions,
-    });
-  }
-  return results;
+async function controllerAlive() {
+  try {
+    const d = await chrome.storage.local.get(['controllerHeartbeat']);
+    return (Date.now() - (d.controllerHeartbeat || 0)) < HEARTBEAT_MAX_AGE_MS;
+  } catch (e) { return false; }
 }
 
-async function runSearchDiscovery(threshold, alreadyProcessed) {
-  const seen = new Set(alreadyProcessed || []);
-  const found = new Map();
-  for (let i = 0; i < 6; i++) {
-    await sleep(randInt(1500, 3000));
-    window.scrollBy({ top: randInt(500, 1000), behavior: 'smooth' });
-    await sleep(randInt(2000, 3500));
-    const tiles = scanSearchResults(threshold);
-    for (const t of tiles) {
-      if (seen.has(t.postKey) || found.has(t.postKey)) continue;
-      found.set(t.postKey, t);
-    }
-    if (found.size >= 5) break;
+// 操作間隔。たまに長い休止を挟む
+async function paceWait(pace) {
+  const long = Math.random() < (pace.longPauseChance ?? 0.1);
+  const ms = long
+    ? randInt(pace.longPauseMinMs ?? 20000, pace.longPauseMaxMs ?? 40000)
+    : randInt(pace.minDelayMs ?? 4000, pace.maxDelayMs ?? 11000);
+  dlog(`待機 ${(ms / 1000).toFixed(1)}秒${long ? '（長い休止）' : ''}`);
+  await sleep(ms);
+}
+
+// ログイン要求・確認画面・エラーを検知したら止める
+function detectAnomaly() {
+  const t = (document.body.innerText || '').slice(0, 3000);
+  if (/ログイン|Log in to Threads|Sign up/i.test(t) && !document.querySelector('a[href*="/post/"]')) {
+    return 'ログイン画面が表示されました';
   }
-  return Array.from(found.values());
+  if (/一時的に制限|しばらくしてからもう一度|Please wait a few minutes|Try again later|rate limit/i.test(t)) {
+    return '利用制限の画面が表示されました';
+  }
+  return null;
+}
+
+async function bail(reason) {
+  dlog('中断:', reason);
+  try { await chrome.runtime.sendMessage({ cmd: 'anomaly', reason }); } catch (e) { /* noop */ }
+}
+
+// 一覧カードの数値。**findViewCount(document.body) を呼ばないこと。**
+// 検索結果ではページ全体から最初の「表示◯回」を拾ってしまい、全カードに同じ値が入る。
+// 一覧に表示回数は出ないので、ここでは いいね と リプライ だけを取る。
+function cardStats(container) {
+  return {
+    likes: findCountMultiStrategy(container, /いいね|[Ll]ikes?/, 'いいね|[Ll]ikes?', 'likes').value,
+    replies: findCountMultiStrategy(container, /返信|リプライ|[Rr]epl(y|ies)/, '返信|リプライ|[Rr]eplies?', 'replies').value,
+  };
+}
+
+function eachCard() {
+  const seen = new Set();
+  const out = [];
+  for (const a of document.querySelectorAll('a[href*="/post/"]')) {
+    const href = a.getAttribute('href') || '';
+    const postKey = getPostKeyFromHref(href);
+    if (!postKey || seen.has(postKey)) continue;
+    seen.add(postKey);
+    const container = a.closest('[role="article"]') || a.closest('article')
+      || a.closest('[data-pressable-container]');
+    if (!container) continue;   // 祖先を遡らない（UIテキストの混入を防ぐ）
+    const handle = safeHandle((href.match(/\/@([^/]+)\//) || [])[1] || null);
+    const url = absoluteThreadsUrl(href);
+    if (!isThreadsUrl(url)) continue;   // Threads以外へは絶対に遷移させない
+    out.push({ postKey, handle, url, container });
+  }
+  return out;
+}
+
+async function humanScroll() {
+  const h = window.innerHeight;
+  const amount = Math.round(h * (0.7 + Math.random() * 0.9));
+  window.scrollBy({ top: amount, behavior: 'smooth' });
+  await sleep(randInt(600, 1400));
+  if (Math.random() < 0.15) {           // たまに少し戻る
+    window.scrollBy({ top: -Math.round(h * 0.3), behavior: 'smooth' });
+    await sleep(randInt(500, 1000));
+  }
+}
+
+// ---------- モード1: アカウント発見 ----------
+async function runDiscover(cfg) {
+  const { host, box } = createOverlay();
+  const byHandle = {};
+  let scrolls = 0;
+  while (scrolls < cfg.scrollMax) {
+    if (!(await controllerAlive())) {
+      box.innerHTML = '<div class="row">操作画面が閉じられたため停止しました</div>';
+      try { await chrome.runtime.sendMessage({ cmd: 'controllerGone' }); } catch (e) { /* noop */ }
+      removeOverlayLater(host, 3000); return;
+    }
+    const bad = detectAnomaly();
+    if (bad) { await bail(bad); removeOverlayLater(host, 3000); return; }
+
+    let added = 0;
+    for (const c of eachCard()) {
+      if (!c.handle) continue;
+      const st = cardStats(c.container);
+      if (st.likes == null || st.replies == null) continue;
+      (byHandle[c.handle] ||= []);
+      if (byHandle[c.handle].some((x) => x.postKey === c.postKey)) continue;
+      byHandle[c.handle].push({ postKey: c.postKey, likes: st.likes, replies: st.replies });
+      added += 1;
+    }
+    const total = Object.values(byHandle).reduce((n, a) => n + a.length, 0);
+    box.innerHTML = `<div class="row">アカウントを調査中… ${Object.keys(byHandle).length}件 / 投稿 ${total}件</div>`;
+    dlog(`スクロール${scrolls + 1}: 新規${added}件`);
+
+    await paceWait(cfg.pace);
+    await humanScroll();
+    scrolls += 1;
+  }
+  try {
+    await chrome.runtime.sendMessage({ cmd: 'discoverSamples', byHandle });
+    await chrome.runtime.sendMessage({ cmd: 'discoverDone' });
+  } catch (e) { /* noop */ }
+  box.innerHTML = `<div class="row">調査completed。操作画面で結果を確認してください</div>`;
+  removeOverlayLater(host, 4000);
+}
+
+// ---------- モード2-1: プロフィールから投稿一覧とフォロワー数 ----------
+function parseFollowersFromOg() {
+  const og = document.querySelector('meta[property="og:description"]');
+  const c = og && og.content ? og.content : '';
+  // 例: 「フォロワー569.7万人・スレッド153 件・…」/「5.6M followers」
+  let m = c.match(/フォロワー\s*([\d.,]+\s*(?:万|億)?)\s*人/);
+  if (!m) m = c.match(/([\d.,]+\s*[KkMmBb]?)\s*followers?/i);
+  return m ? parseCount(m[1]) : null;
+}
+
+async function runProfile(cfg) {
+  const { host, box } = createOverlay();
+  await sleep(randInt(1500, 2600));
+  const followers = parseFollowersFromOg();
+  const found = new Map();
+  let scrolls = 0;
+  while (found.size < cfg.postMax && scrolls < 25) {
+    if (!(await controllerAlive())) {
+      try { await chrome.runtime.sendMessage({ cmd: 'controllerGone' }); } catch (e) { /* noop */ }
+      removeOverlayLater(host, 3000); return;
+    }
+    const bad = detectAnomaly();
+    if (bad) { await bail(bad); removeOverlayLater(host, 3000); return; }
+
+    for (const c of eachCard()) {
+      if (found.size >= cfg.postMax) break;
+      if (!found.has(c.postKey)) found.set(c.postKey, { postKey: c.postKey, url: c.url });
+    }
+    box.innerHTML = `<div class="row">投稿を探しています… ${found.size}/${cfg.postMax}件</div>`;
+    if (found.size >= cfg.postMax) break;
+    await paceWait(cfg.pace);
+    await humanScroll();
+    scrolls += 1;
+  }
+  try {
+    await chrome.runtime.sendMessage({
+      cmd: 'profileResult', followers, candidates: Array.from(found.values()),
+    });
+  } catch (e) { /* noop */ }
+  box.innerHTML = `<div class="row">${found.size}件の投稿を確認します</div>`;
+  removeOverlayLater(host, 2500);
+}
+
+// ---------- モード2-2: 投稿の詳細 ----------
+async function runPost(cfg) {
+  const { host, box } = createOverlay();
+  box.innerHTML = '<div class="row">投稿の内容を確認中…</div>';
+  await paceWait(cfg.pace);
+  if (!(await controllerAlive())) {
+    try { await chrome.runtime.sendMessage({ cmd: 'controllerGone' }); } catch (e) { /* noop */ }
+    removeOverlayLater(host, 2000); return;
+  }
+  const bad = detectAnomaly();
+  if (bad) { await bail(bad); removeOverlayLater(host, 3000); return; }
+
+  const d = extractPostDetail();
+  try {
+    await chrome.runtime.sendMessage({
+      cmd: 'postResult',
+      text: d.text || '', postedAt: d.postedAt || '',
+      likes: d.likes ?? null, replies: d.replies ?? null,
+      impressions: d.impressions ?? null, replyTexts: d.replyTexts || [],
+    });
+  } catch (e) { /* noop */ }
+  box.innerHTML = `<div class="row">表示${d.impressions ?? '—'} / いいね${d.likes ?? '—'}</div>`;
+  removeOverlayLater(host, 1800);
 }
 
 // ---------- メイン ----------
 async function main() {
   await loadDebugFlag();
+  if (DEBUG && getPostKeyFromHref(location.pathname)) setTimeout(runDebugReport, 1800);
 
-  // デバッグモード時は、収集タスク中でなくても投稿ページを開いたら自動でレポートを出す
-  if (DEBUG && getPostKeyFromHref(location.pathname)) {
-    // ページ描画を少し待ってからレポート
-    setTimeout(runDebugReport, 1800);
-  }
-
-  let activeCheck = { active: false };
+  let cfg = { active: false };
   try {
-    activeCheck = await chrome.runtime.sendMessage({ cmd: 'checkActive', path: location.pathname, search: location.search });
-  } catch (e) { return; }
-  if (!activeCheck.active) return;
-
-  if (activeCheck.phase === 'search') {
-    const { host, box } = createOverlay();
-    box.innerHTML = `<div class="row">🔍 バズ投稿をリサーチ中...</div>`;
-    const candidates = await runSearchDiscovery(activeCheck.threshold, activeCheck.alreadyProcessed);
-    box.innerHTML = `<div class="row">✅ ${candidates.length}件の候補を発見（スコア${activeCheck.threshold.toLocaleString()}以上）</div>`;
-    removeOverlayLater(host, 3000);
-    await chrome.runtime.sendMessage({ cmd: 'searchCandidates', candidates });
-    return;
-  }
-
-  if (activeCheck.phase === 'post') {
-    const postKey = getPostKeyFromHref(location.pathname);
-    if (!postKey || postKey !== activeCheck.current.postKey) return;
-
-    const { host, box } = createOverlay();
-    box.innerHTML = `<div class="row">🔍 投稿内容を確認中...</div>`;
-    await sleep(randInt(1000, 2000));
-
-    const detail = extractPostDetail();
-    const likes = detail.likes ?? activeCheck.current.likes;
-    const replies = detail.replies ?? activeCheck.current.replies;   // リプライ数(カウント)
-    const impressions = detail.impressions ?? activeCheck.current.impressions;
-    const replyTexts = detail.replyTexts || [];                       // 本人リプの本文配列
-
-    if (!detail.text) {
-      box.classList.add('anomaly');
-      box.innerHTML = `
-        <div class="row">⚠️ 本文を検出できませんでした</div>
-        ${DEBUG ? '<div class="row small">デバッグON: コンソールに詳細を出力しました</div>' : ''}
-        <button id="buzz-skip" class="btn-secondary">スキップして次へ</button>
-        <div class="row small" id="buzz-countdown">10秒後に自動スキップ</div>
-      `;
-      await chrome.runtime.sendMessage({ cmd: 'postAnomaly', postKey, reason: '本文検出失敗' });
-      setupSkipButton(box, host, 10);
-      return;
-    }
-
-    if (DEBUG) box.classList.add('debug');
-    box.innerHTML = `
-      <div class="row">✅ 本文取得済み</div>
-      <div class="row small">👍${likes ?? '-'} ・ 💬${replies ?? '-'} ・ 👁${impressions ?? '-'}</div>
-      ${DEBUG ? `<div class="row small mono">本文: ${(detail.text || '').slice(0, 40)}…</div>` : ''}
-      <div class="row small">確認中…まもなく登録します</div>
-    `;
-    await sleep(randInt(1500, 3000));
-    const res = await chrome.runtime.sendMessage({
-      cmd: 'postResult', postKey, text: detail.text, postedAt: detail.postedAt,
-      likes, replies, impressions, replyTexts,
+    cfg = await chrome.runtime.sendMessage({
+      cmd: 'checkActive', path: location.pathname, search: location.search,
     });
-    box.innerHTML = res.ok
-      ? `<div class="row">✅ アーカイブに登録しました</div>`
-      : `<div class="row">❌ 登録失敗: ${res.error}</div>`;
-    removeOverlayLater(host, res.ok ? 2500 : 6000);
-  }
+  } catch (e) { return; }
+  if (!cfg || !cfg.active) return;
+  if (!(await controllerAlive())) return;   // 操作画面が閉じていたら何もしない
+
+  if (cfg.phase === 'discover') await runDiscover(cfg);
+  else if (cfg.phase === 'profile') await runProfile(cfg);
+  else if (cfg.phase === 'post') await runPost(cfg);
 }
 
-main().catch((e) => console.error('[buzz-threads-collector]', e));
+main();
